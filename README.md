@@ -53,8 +53,8 @@ The owner sees everything in real-time on their laptop dashboard — **zero phon
 │  │  REST API   │  │ Whisper API  │  │   GPT-4o-mini API   │  │
 │  │  /api/v1/*  │  │ Audio → Text │  │ Text → JSON fields  │  │
 │  └──────┬──────┘  └──────┬───────┘  └──────────┬──────────┘  │
-│         │                │                      │            │
-│         ▼                ▼                      ▼            │
+│         │                │                     │             │
+│         ▼                ▼                     ▼             │
 │    ┌─────────────────────────────────────────────────┐       │
 │    │              SQLite (crm.db)                    │       │
 │    │  vendedores │ clientes │ llamadas │ visitas     │       │
