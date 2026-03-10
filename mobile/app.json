@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Field Sales CRM",
+    "slug": "field-sales-crm",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "fieldsalescrm",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1B4F72"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.fieldsalescrm.app",
+      "infoPlist": {
+        "NSContactsUsageDescription": "We need access to your contacts to sync client information.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "We use your location to detect when you arrive at a client's address.",
+        "NSLocationWhenInUseUsageDescription": "We use your location to detect when you arrive at a client's address.",
+        "NSMicrophoneUsageDescription": "We record visit conversations to automatically fill CRM data.",
+        "UIBackgroundModes": ["location", "audio"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1B4F72"
+      },
+      "package": "com.fieldsalescrm.app",
+      "permissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CALL_LOG"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-contacts",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Field Sales CRM to use your location to detect arrival at client sites.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Field Sales CRM to record visit conversations."
+        }
+      ]
+    ]
+  }
+}
