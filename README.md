@@ -33,34 +33,34 @@ The owner sees everything in real-time on their laptop dashboard — **zero phon
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │                    📱 MOBILE APP (per rep)                   │
 │            React Native + Expo (iOS & Android)               │
 │                                                              │
 │  expo-contacts ─── expo-linking ─── expo-location ─── expo-av│
 │       │                │                │              │     │
-│   Sync phone      Track calls      Geofencing      Record   │
+│   Sync phone      Track calls      Geofencing      Record    │
 │   contacts       (appointment?)   (detect arrival)   audio   │
 │                                                              │
-│              WatermelonDB (offline SQLite sync)               │
+│              WatermelonDB (offline SQLite sync)              │
 └──────────────────────┬───────────────────────────────────────┘
                        │ HTTP sync when online
 ┌──────────────────────▼───────────────────────────────────────┐
-│              💻 BACKEND (owner's Windows laptop)              │
-│                    FastAPI + SQLite                           │
+│              💻 BACKEND (owner's Windows laptop)             │
+│                    FastAPI + SQLite                          │
 │                                                              │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
-│  │  REST API   │  │ Whisper API  │  │   GPT-4o-mini API   │ │
-│  │  /api/v1/*  │  │ Audio → Text │  │ Text → JSON fields  │ │
-│  └──────┬──────┘  └──────┬───────┘  └──────────┬──────────┘ │
-│         │                │                      │            │
-│         ▼                ▼                      ▼            │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐  │
+│  │  REST API   │  │ Whisper API  │  │   GPT-4o-mini API   │  │
+│  │  /api/v1/*  │  │ Audio → Text │  │ Text → JSON fields  │  │
+│  └──────┬──────┘  └──────┬───────┘  └──────────┬──────────┘  │
+│         │                │                     │             │
+│         ▼                ▼                     ▼             │
 │    ┌─────────────────────────────────────────────────┐       │
 │    │              SQLite (crm.db)                    │       │
 │    │  vendedores │ clientes │ llamadas │ visitas     │       │
 │    └─────────────────────────────────────────────────┘       │
 │                          │                                   │
-│              Streamlit Dashboard (localhost:8501)             │
+│              Streamlit Dashboard (localhost:8501)            │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -246,4 +246,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Author
 
-Built by [Juan Alvarado](https://www.linkedin.com/in/juan-alvarado-71a5a629/) — PhD Mathematician, independent contractor specializing in data engineering and AI systems.
+Built by [Juan Alvarado](https://www.linkedin.com/in/juan-alvarado-71a5a629/) — PhD Computer Science, independent contractor specializing in data engineering and AI systems.
