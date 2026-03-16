@@ -503,10 +503,10 @@ mgmt_col1, mgmt_col2, mgmt_col3 = st.columns(3)
 with mgmt_col1:
     with st.expander("➕ Nuevo Vendedor"):
         with st.form("form_nuevo_vendedor"):
-            nv_nombre = st.text_input("Nombre completo")
-            nv_telefono = st.text_input("Teléfono")
-            nv_zona = st.text_input("Zona (opcional)")
-            nv_password = st.text_input("Contraseña inicial", type="password")
+            nv_nombre = st.text_input("Nombre completo", key="nv_nombre")
+            nv_telefono = st.text_input("Teléfono", key="nv_telefono")
+            nv_zona = st.text_input("Zona (opcional)", key="nv_zona")
+            nv_password = st.text_input("Contraseña inicial", type="password", key="nv_password")
             nv_submit = st.form_submit_button("Crear", use_container_width=True)
 
         if nv_submit:
@@ -523,6 +523,8 @@ with mgmt_col1:
                             (nv_nombre, nv_telefono, nv_zona or None, hash_password(nv_password), datetime.utcnow()),
                         )
                         st.success(f"Vendedor '{nv_nombre}' creado.")
+                        for k in ["nv_nombre", "nv_telefono", "nv_zona", "nv_password"]:
+                            st.session_state.pop(k, None)
                         st.cache_resource.clear()
                         st.rerun()
             else:
@@ -560,6 +562,156 @@ with mgmt_col3:
                 st.caption("Comunica esta contraseña al vendedor. Solo se muestra una vez.")
         else:
             st.info("No hay vendedores activos.")
+
+# ---- GESTIÓN DE CLIENTES ----
+st.markdown("---")
+st.subheader("👤 Gestión de Clientes")
+
+gc_col1, gc_col2 = st.columns(2)
+
+# --- Nuevo cliente individual ---
+with gc_col1:
+    with st.expander("➕ Nuevo Cliente"):
+        with st.form("form_nuevo_cliente"):
+            nc_nombre = st.text_input("Nombre y Apellido", key="nc_nombre")
+            nc_telefono = st.text_input("Teléfono", key="nc_telefono")
+            nc_zona = st.text_input("Zona (opcional)", key="nc_zona")
+            nc_fuente = st.text_input("Fuente (opcional)", key="nc_fuente")
+            nc_direccion = st.text_input("Dirección (opcional)", key="nc_direccion")
+            nc_estado = st.selectbox(
+                "Estado inicial",
+                ["nuevo", "cita", "seguimiento", "venta", "no_llamar", "equivocado"],
+                key="nc_estado",
+            )
+            nc_submit = st.form_submit_button("Crear Cliente", use_container_width=True)
+
+        if nc_submit:
+            if nc_nombre and nc_telefono:
+                existing = query("SELECT id FROM clientes WHERE telefono = ?", (nc_telefono,))
+                if not existing.empty:
+                    st.error("Ya existe un cliente con ese teléfono.")
+                else:
+                    write_db(
+                        """INSERT INTO clientes
+                           (nombre_apellido, telefono, zona, fuente, direccion, estado, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (nc_nombre, nc_telefono, nc_zona or None, nc_fuente or None,
+                         nc_direccion or None, nc_estado, datetime.utcnow(), datetime.utcnow()),
+                    )
+                    st.success(f"Cliente '{nc_nombre}' creado.")
+                    for k in ["nc_nombre", "nc_telefono", "nc_zona", "nc_fuente", "nc_direccion"]:
+                        st.session_state.pop(k, None)
+                    st.cache_resource.clear()
+                    st.rerun()
+            else:
+                st.warning("Nombre y teléfono son obligatorios.")
+
+# --- Importar desde CSV / Excel ---
+with gc_col2:
+    with st.expander("📂 Importar CSV / Excel"):
+        st.caption("Acepta archivos CSV o Excel. Detecta automáticamente el formato y los nombres de columnas.")
+        uploaded = st.file_uploader("Seleccionar archivo", type=["csv", "xlsx", "xls", "xlxs"])
+
+        # Column name aliases — maps common variations to standard field names
+        _COL_ALIASES = {
+            "nombre_apellido":  ["nombre_apellido", "nombre y apellido", "nombre", "nombre_y_apellido", "name"],
+            "telefono":         ["telefono", "teléfono", "telefono", "phone", "tel"],
+            "zona":             ["zona", "zone"],
+            "fuente":           ["fuente", "source", "origen"],
+            "direccion":        ["direccion", "dirección", "address", "dir"],
+        }
+
+        def _normalize(text: str) -> str:
+            """Lowercase, strip accents, replace spaces with underscores."""
+            import unicodedata
+            text = unicodedata.normalize("NFD", str(text))
+            text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+            return text.strip().lower().replace(" ", "_")
+
+        def _find_col(columns, field):
+            """Return the actual column name that matches a field alias."""
+            norm_cols = {_normalize(c): c for c in columns}
+            for alias in _COL_ALIASES[field]:
+                key = _normalize(alias)
+                if key in norm_cols:
+                    return norm_cols[key]
+            return None
+
+        def _find_header_row(raw_df):
+            """Scan rows to find which one contains name/phone headers."""
+            for i, row in raw_df.iterrows():
+                vals = [_normalize(str(v)) for v in row.values if str(v) != "nan"]
+                has_name  = any(a in vals for a in [_normalize(a) for a in _COL_ALIASES["nombre_apellido"]])
+                has_phone = any(a in vals for a in [_normalize(a) for a in _COL_ALIASES["telefono"]])
+                if has_name and has_phone:
+                    return i
+            return None
+
+        def _clean(val):
+            s = str(val).strip()
+            return None if s in ("", "nan", "None") else s
+
+        if uploaded:
+            try:
+                fname = uploaded.name.lower()
+                if fname.endswith(".csv"):
+                    raw = pd.read_excel(uploaded, header=None, dtype=str) if False else \
+                          pd.read_csv(uploaded, dtype=str, header=None)
+                else:
+                    raw = pd.read_excel(uploaded, header=None, dtype=str)
+
+                # Auto-detect header row
+                header_row = _find_header_row(raw)
+                if header_row is None:
+                    st.error("No se encontraron columnas de nombre/teléfono en el archivo.")
+                else:
+                    df = pd.read_excel(uploaded, header=header_row, dtype=str) \
+                         if not fname.endswith(".csv") else \
+                         pd.read_csv(uploaded, header=header_row, dtype=str)
+
+                    col_nombre   = _find_col(df.columns, "nombre_apellido")
+                    col_telefono = _find_col(df.columns, "telefono")
+                    col_zona     = _find_col(df.columns, "zona")
+                    col_fuente   = _find_col(df.columns, "fuente")
+                    col_direccion= _find_col(df.columns, "direccion")
+
+                    if not col_nombre or not col_telefono:
+                        st.error(f"No se encontraron columnas de nombre o teléfono. Columnas detectadas: {list(df.columns)}")
+                    else:
+                        st.success(f"Columnas detectadas — Nombre: `{col_nombre}` | Teléfono: `{col_telefono}`")
+                        preview = df[[c for c in [col_nombre, col_telefono, col_zona, col_fuente, col_direccion] if c]].head(5)
+                        st.dataframe(preview, use_container_width=True)
+                        st.caption(f"{len(df)} filas en total")
+
+                        if st.button("📥 Importar clientes", use_container_width=True):
+                            created = 0
+                            skipped = 0
+                            for _, row in df.iterrows():
+                                nombre   = _clean(row.get(col_nombre, ""))
+                                telefono = _clean(row.get(col_telefono, ""))
+                                if not nombre or not telefono:
+                                    skipped += 1
+                                    continue
+                                existing = query("SELECT id FROM clientes WHERE telefono = ?", (telefono,))
+                                if not existing.empty:
+                                    skipped += 1
+                                    continue
+                                write_db(
+                                    """INSERT INTO clientes
+                                       (nombre_apellido, telefono, zona, fuente, direccion, estado, created_at, updated_at)
+                                       VALUES (?, ?, ?, ?, ?, 'nuevo', ?, ?)""",
+                                    (nombre, telefono,
+                                     _clean(row.get(col_zona, "")) if col_zona else None,
+                                     _clean(row.get(col_fuente, "")) if col_fuente else None,
+                                     _clean(row.get(col_direccion, "")) if col_direccion else None,
+                                     datetime.utcnow(), datetime.utcnow()),
+                                )
+                                created += 1
+                            st.success(f"✅ {created} clientes importados. {skipped} omitidos (ya existían o sin datos).")
+                            st.cache_resource.clear()
+                            st.rerun()
+            except Exception as e:
+                st.error(f"Error al leer el archivo: {e}")
 
 # ---- FOOTER ----
 st.markdown("---")

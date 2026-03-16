@@ -8,12 +8,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ app/
+COPY dashboard.py .
+COPY start.sh .
 
 # Create non-root user for security
 RUN adduser --disabled-password --gecos "" appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app \
+    && chmod +x /app/start.sh
 USER appuser
 
 EXPOSE 8000
+EXPOSE 8501
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/bin/bash", "/app/start.sh"]

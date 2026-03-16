@@ -74,12 +74,12 @@ The owner sees everything in real-time on their laptop dashboard — **zero phon
 | GPS/Geofencing | expo-location | Detect arrival at client location |
 | Audio Recording | expo-av | Record visit conversations |
 | Offline Storage | WatermelonDB | SQLite on device, syncs when online |
-| Backend API | FastAPI (Python) | REST API on owner's laptop |
-| Database | SQLite (WAL mode) | Zero-install, single file, portable |
+| Backend API | FastAPI (Python) | REST API deployed on Fly.io (24/7) |
+| Database | SQLite (WAL mode) | Zero-install, single file, persistent volume |
 | Transcription | OpenAI Whisper API | Audio → text (Spanish + English) |
 | Data Extraction | OpenAI GPT-4o-mini | Transcript → structured CRM fields |
-| Dashboard | Streamlit | Real-time analytics on localhost |
-| Tunnel | Cloudflare Tunnel | Expose laptop API to internet (free) |
+| Dashboard | Streamlit | Real-time analytics (public URL on Fly.io) |
+| Hosting | Fly.io | 24/7 cloud deployment, persistent volume |
 
 ## Database Schema
 
@@ -128,12 +128,8 @@ copy .env.example .env
 # Edit .env — required fields:
 #   OPENAI_API_KEY=sk-...
 #   SECRET_KEY=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
-#   CORS_ORIGINS=["https://your-tunnel-domain.com"]
-#   DATABASE_PATH=C:/ventas/crm.db      ← override for local Windows paths
+#   DATABASE_PATH=C:/ventas/crm.db
 #   AUDIO_STORAGE_PATH=C:/ventas/audios
-
-# Initialize database
-python -m app.core.init_db
 
 # Run the server
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -141,10 +137,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Backend Setup (Fly.io — production, 24/7)
 
-```bash
-# Install flyctl (one time)
-# Windows: https://fly.io/install.ps1
-# macOS/Linux: curl -L https://fly.io/install.sh | sh
+```powershell
+# Install flyctl — Windows PowerShell
+iwr https://fly.io/install.ps1 -useb | iex
 
 # Login
 fly auth login
@@ -152,16 +147,16 @@ fly auth login
 # From the backend/ directory
 cd field-sales-crm/backend
 
-# Launch the app (only the first time — generates fly.toml)
-fly launch --name field-sales-crm --region ewr --no-deploy
-
 # Create a 5GB persistent volume for SQLite DB + audio files
 fly volumes create crm_data --region ewr --size 5
 
-# Set secrets (never stored in code or .env)
-fly secrets set SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+# Set secrets (one per command in PowerShell)
+fly secrets set SECRET_KEY=<generate_with_python>
 fly secrets set OPENAI_API_KEY=sk-...
-fly secrets set CORS_ORIGINS='["https://field-sales-crm.fly.dev"]'
+fly secrets set DATABASE_PATH=/data/crm.db
+fly secrets set AUDIO_STORAGE_PATH=/data/audios
+fly secrets set DEBUG=false
+fly secrets set ACCESS_TOKEN_EXPIRE_MINUTES=43200
 
 # Deploy
 fly deploy
@@ -171,11 +166,12 @@ fly status
 fly logs
 ```
 
-After deploy, your API is live at `https://field-sales-crm.fly.dev`.
-Update the mobile app's production URL in `mobile/services/api.js`:
-```javascript
-: 'https://field-sales-crm.fly.dev'
-```
+After deploy:
+
+| Service | URL |
+|---------|-----|
+| **API** | `https://field-sales-crm.fly.dev` |
+| **Dashboard** | `https://field-sales-crm.fly.dev:8501` |
 
 ### Mobile App Setup
 
@@ -185,8 +181,19 @@ npm install
 npx expo start
 ```
 
+The production API URL is already configured in `mobile/services/api.js`:
+```javascript
+: 'https://field-sales-crm.fly.dev'
+```
+
 ### Dashboard
 
+The dashboard runs automatically as part of the Fly.io deployment and is accessible at:
+```
+https://field-sales-crm.fly.dev:8501
+```
+
+For local development:
 ```bash
 cd backend
 streamlit run dashboard.py
@@ -285,11 +292,13 @@ field-sales-crm/
 
 - [x] Project architecture & documentation
 - [x] **Phase 1**: Backend API (FastAPI + SQLite + models) + Security hardening
-- [ ] **Phase 2**: OpenAI integration (Whisper + GPT extraction)
-- [ ] **Phase 3**: Mobile app (contacts + calls + GPS)
-- [ ] **Phase 4**: Audio recording + upload + transcription
-- [ ] **Phase 5**: Streamlit dashboard
-- [ ] **Phase 6**: Pilot with 5 reps → full rollout
+- [x] **Phase 2**: OpenAI integration (Whisper + GPT extraction)
+- [x] **Phase 3**: Mobile app (contacts + calls + GPS + login/register)
+- [x] **Phase 4**: Audio recording + upload + transcription
+- [x] **Phase 5**: Streamlit dashboard (KPIs, charts, client history, vendor management, client ingestion)
+- [x] **Phase 6**: Fly.io cloud deployment (24/7, persistent volume, public dashboard)
+- [x] **Phase 7**: Client ingestion — manual form + CSV/Excel bulk import (dashboard) + mobile form
+- [ ] **Phase 8**: Pilot with 5 reps → full rollout
 
 ## Cost Estimate (50 reps)
 
@@ -297,10 +306,8 @@ field-sales-crm/
 |---------|-------------|
 | OpenAI Whisper API | ~$15-30 |
 | OpenAI GPT-4o-mini | ~$5-15 |
-| SQLite | $0 (local file) |
-| FastAPI | $0 (runs on laptop) |
-| Cloudflare Tunnel | $0 (free tier) |
-| **Total** | **$20-45/month** |
+| Fly.io (shared CPU, 512MB RAM, 5GB volume) | ~$5-10 |
+| **Total** | **$25-55/month** |
 
 *vs. SaaS CRM for 50 users: $500-2,500/month*
 

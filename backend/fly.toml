@@ -9,32 +9,44 @@ primary_region = "ewr"   # Newark, NJ — closest to New York
 [env]
   PORT = "8000"
 
-[http_service]
+# FastAPI — public API
+[[services]]
   internal_port = 8000
-  force_https = true
-  auto_stop_machines = false   # keep alive 24/7
+  protocol = "tcp"
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
 
-  [http_service.concurrency]
-    type = "requests"
-    hard_limit = 100
-    soft_limit = 80
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
 
-[[http_service.checks]]
-  grace_period = "10s"
-  interval = "30s"
-  method = "GET"
-  path = "/health"
-  timeout = "5s"
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+# Streamlit Dashboard — owner access
+[[services]]
+  internal_port = 8501
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 8501
+    handlers = ["tls", "http"]
 
 [[vm]]
-  memory = "256mb"
+  memory = "512mb"
   cpu_kind = "shared"
   cpus = 1
 
 # Persistent volume — stores SQLite DB + audio files
-# Create with: fly volumes create crm_data --region ewr --size 5
 [mounts]
   source = "crm_data"
   destination = "/data"
