@@ -5,38 +5,12 @@
  * Triggers automatic audio recording on arrival.
  */
 import * as Location from 'expo-location';
-import * as TaskManager from 'expo-task-manager';
 
-const GEOFENCE_TASK = 'GEOFENCE_TASK';
-const GEOFENCE_RADIUS = 100; // meters — triggers when within 100m of client
+// NOTE: Geofencing (expo-task-manager) requires a native build — disabled in Expo Go.
 
-// Callback registry for geofence events
-let onArrivalCallback = null;
-
-export function setOnArrivalCallback(callback) {
-  onArrivalCallback = callback;
+export function setOnArrivalCallback(_callback) {
+  // No-op in Expo Go
 }
-
-// Define the background task for geofencing
-TaskManager.defineTask(GEOFENCE_TASK, ({ data, error }) => {
-  if (error) {
-    console.error('Geofence task error:', error.message);
-    return;
-  }
-
-  if (data?.eventType === Location.GeofencingEventType.Enter) {
-    const region = data.region;
-    console.log(`Arrived at client location: ${region.identifier}`);
-    
-    if (onArrivalCallback) {
-      onArrivalCallback(region);
-    }
-  }
-
-  if (data?.eventType === Location.GeofencingEventType.Exit) {
-    console.log(`Left client location: ${data.region.identifier}`);
-  }
-});
 
 export async function requestLocationPermission() {
   const { status: foreground } = await Location.requestForegroundPermissionsAsync();
@@ -56,38 +30,12 @@ export async function getCurrentLocation() {
   };
 }
 
-export async function startGeofencing(clients) {
-  /**
-   * Start monitoring geofences for a list of clients.
-   * 
-   * @param clients - Array of { id, nombre_apellido, lat, lng }
-   *                  Only clients with GPS coordinates are monitored.
-   */
-  const regions = clients
-    .filter(c => c.lat && c.lng)
-    .map(c => ({
-      identifier: String(c.id),
-      latitude: c.lat,
-      longitude: c.lng,
-      radius: GEOFENCE_RADIUS,
-      notifyOnEnter: true,
-      notifyOnExit: true,
-    }));
-
-  if (regions.length === 0) {
-    console.log('No clients with GPS coordinates to monitor');
-    return;
-  }
-
-  await Location.startGeofencingAsync(GEOFENCE_TASK, regions);
-  console.log(`Monitoring ${regions.length} client locations`);
+export async function startGeofencing(_clients) {
+  // No-op in Expo Go — requires native build
 }
 
 export async function stopGeofencing() {
-  const isRegistered = await TaskManager.isTaskRegisteredAsync(GEOFENCE_TASK);
-  if (isRegistered) {
-    await Location.stopGeofencingAsync(GEOFENCE_TASK);
-  }
+  // No-op in Expo Go — requires native build
 }
 
 export function distanceBetween(lat1, lng1, lat2, lng2) {
