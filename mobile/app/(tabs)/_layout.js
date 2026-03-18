@@ -1,71 +1,22 @@
 /**
- * Tab layout — Main navigation for the sales rep app.
- * 
- * 4 tabs: Clients, Call, Visit (record), Stats
+ * App layout — Stack navigator (no tabs).
+ * The sales rep has one main screen: Clientes.
+ * Visit recording is a separate stack screen pushed from Clientes.
  */
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack } from 'expo-router';
 
-const COLORS = {
-  active: '#f59e0b',
-  inactive: '#94a3b8',
-  bg: '#0f172a',
-  card: '#1e293b',
-};
-
-export default function TabLayout() {
+export default function Layout() {
   return (
-    <Tabs
+    <Stack
       screenOptions={{
-        tabBarActiveTintColor: COLORS.active,
-        tabBarInactiveTintColor: COLORS.inactive,
-        tabBarStyle: {
-          backgroundColor: COLORS.bg,
-          borderTopColor: COLORS.card,
-          height: 60,
-          paddingBottom: 8,
-        },
-        headerStyle: { backgroundColor: COLORS.bg },
+        headerStyle: { backgroundColor: '#0f172a' },
         headerTintColor: '#f1f5f9',
         headerTitleStyle: { fontWeight: '700' },
+        headerBackTitle: 'Clientes',
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Clientes',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="llamar"
-        options={{
-          title: 'Llamar',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="call" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="visita"
-        options={{
-          title: 'Visita',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="mic" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="stats"
-        options={{
-          title: 'Stats',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart" size={size} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+      <Stack.Screen name="index" options={{ title: 'Clientes' }} />
+      <Stack.Screen name="visita" options={{ title: 'Nueva Visita' }} />
+    </Stack>
   );
 }

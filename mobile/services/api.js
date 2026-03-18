@@ -40,6 +40,7 @@ class ApiService {
     this.vendedorId = null;
     await AsyncStorage.removeItem(TOKEN_KEY);
     await AsyncStorage.removeItem(VENDEDOR_ID_KEY);
+    if (_onAuthChange) _onAuthChange(false);
   }
 
   async request(endpoint, options = {}, requiresAuth = true) {

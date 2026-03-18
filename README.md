@@ -32,274 +32,34 @@ The owner sees everything in real-time on their laptop dashboard — **zero phon
 
 ## Use Cases
 
-### 1 — Sales Rep Onboarding (Register & Login)
+Sequence diagrams for all flows are in [`docs/SEQUENCE_DIAGRAMS.md`](docs/SEQUENCE_DIAGRAMS.md).
 
-```
-Vendedor (Phone)               Backend API               SQLite (crm.db)
-      │                             │                           │
-      │  POST /api/v1/vendedores/   │                           │
-      │  {nombre, telefono,         │                           │
-      │   password}                 │                           │
-      │ ─────────────────────────►  │                           │
-      │                             │  SELECT vendedor          │
-      │                             │  WHERE telefono = ?       │
-      │                             │ ──────────────────────►   │
-      │                             │  ◄──────────────────────  │
-      │                             │  not found                │
-      │                             │                           │
-      │                             │  INSERT vendedor          │
-      │                             │  (password_hash =         │
-      │                             │   pbkdf2_sha256)          │
-      │                             │ ──────────────────────►   │
-      │                             │  ◄──────────────────────  │
-      │  ◄─────────────────────────  │                           │
-      │  201 {id, nombre, telefono} │                           │
-      │                             │                           │
-      │  POST /api/v1/auth/login    │                           │
-      │  {telefono, password}       │                           │
-      │ ─────────────────────────►  │                           │
-      │                             │  SELECT vendedor WHERE    │
-      │                             │  telefono = ? AND         │
-      │                             │  activo = true            │
-      │                             │ ──────────────────────►   │
-      │                             │  ◄──────────────────────  │
-      │                             │  vendedor record          │
-      │                             │                           │
-      │                             │  verify_password(pwd,     │
-      │                             │  password_hash)           │
-      │  ◄─────────────────────────  │                           │
-      │  200 {access_token (JWT),   │                           │
-      │       vendedor_id}          │                           │
-      │                             │                           │
-      │  [Token saved in phone      │                           │
-      │   AsyncStorage — used on    │                           │
-      │   all future requests]      │                           │
-```
+| # | Flow | Actors |
+|---|------|--------|
+| 1 | Sales rep registers and logs in | Mobile app → API → SQLite |
+| 2 | Contact sync from phone | Mobile app → expo-contacts → API → SQLite |
+| 3 | Call logging with result modal | Mobile app → API → SQLite |
+| 4 | Field visit: GPS + audio recording + AI pipeline | Mobile app → GPS/Mic → API → OpenAI → SQLite |
+| 5 | Owner views real-time dashboard | Browser → Streamlit → API → SQLite |
 
 ---
 
-### 2 — Contact Sync from Phone
+## Mobile App
+
+The sales rep has a single main screen — **Clientes** — with no bottom tabs.
 
 ```
-Vendedor (Phone)          Phone Contacts           Backend API             SQLite (crm.db)
-      │                        │                        │                       │
-      │  Request permission    │                        │                       │
-      │ ─────────────────────► │                        │                       │
-      │  ◄───────────────────  │                        │                       │
-      │  [Contacts granted]    │                        │                       │
-      │                        │                        │                       │
-      │  Read all contacts     │                        │                       │
-      │ ─────────────────────► │                        │                       │
-      │  ◄───────────────────  │                        │                       │
-      │  [{nombre, telefono}…] │                        │                       │
-      │                        │                        │                       │
-      │  POST /clientes/sync   │                        │                       │
-      │  Authorization: Bearer │                        │                       │
-      │  {contactos: [...]}    │                        │                       │
-      │ ──────────────────────────────────────────────► │                       │
-      │                        │                        │                       │
-      │                        │  [for each contact]    │                       │
-      │                        │                        │  SELECT cliente       │
-      │                        │                        │  WHERE telefono = ?   │
-      │                        │                        │ ─────────────────►    │
-      │                        │                        │  ◄───────────────     │
-      │                        │                        │  exists → skipped++   │
-      │                        │                        │  not found →          │
-      │                        │                        │  INSERT cliente       │
-      │                        │                        │  created++            │
-      │                        │                        │ ─────────────────►    │
-      │                        │                        │                       │
-      │  ◄────────────────────────────────────────────  │                       │
-      │  200 {created: N,      │                        │                       │
-      │       skipped: M,      │                        │                       │
-      │       total: N+M}      │                        │                       │
-      │                        │                        │                       │
-      │  [New clients visible in owner's dashboard]     │                       │
-```
-
----
-
-### 3 — Logging a Call (Telemarketing)
-
-```
-Vendedor (Phone)            Backend API              SQLite (crm.db)
-      │                          │                        │
-      │  [Opens client card]     │                        │
-      │  [Taps "Llamar"]         │                        │
-      │  → Native phone dialer opens                      │
-      │                          │                        │
-      │  [Call ends]             │                        │
-      │  [Selects outcome:       │                        │
-      │   cita / no_cita /       │                        │
-      │   no_contesta /          │                        │
-      │   equivocado /           │                        │
-      │   no_llamar / venta]     │                        │
-      │                          │                        │
-      │  POST /api/v1/llamadas/  │                        │
-      │  Authorization: Bearer   │                        │
-      │  {cliente_id,            │                        │
-      │   resultado,             │                        │
-      │   notas_telemarketing}   │                        │
-      │ ───────────────────────► │                        │
-      │                          │  Extract vendedor_id   │
-      │                          │  from JWT              │
-      │                          │                        │
-      │                          │  INSERT INTO llamadas  │
-      │                          │ ─────────────────────► │
-      │                          │                        │
-      │                          │  [if resultado maps    │
-      │                          │   to a known status]   │
-      │                          │  UPDATE clientes.estado│
-      │                          │ ─────────────────────► │
-      │                          │  ◄─────────────────── │
-      │  ◄─────────────────────  │                        │
-      │  201 {llamada_id, fecha} │  [Client card updates  │
-      │                          │   status color]        │
-```
-
----
-
-### 4 — Field Visit with AI Processing (Core Flow)
-
-```
-Vendedor (Phone)     GPS / Mic      Backend API      OpenAI API       SQLite (crm.db)
-      │                  │               │                │                 │
-      │  [Opens Visita   │               │                │                 │
-      │   tab, selects   │               │                │                 │
-      │   client]        │               │                │                 │
-      │                  │               │                │                 │
-      │  Request GPS     │               │                │                 │
-      │ ───────────────► │               │                │                 │
-      │  ◄─────────────  │               │                │                 │
-      │  {lat, lng}      │               │                │                 │
-      │                  │               │                │                 │
-      │  POST /visitas/  │               │                │                 │
-      │  Authorization:  │               │                │                 │
-      │  {cliente_id,    │               │                │                 │
-      │   lat, lng}      │               │                │                 │
-      │ ───────────────────────────────► │                │                 │
-      │                  │               │  INSERT visita │                 │
-      │                  │               │  (vendedor_id  │                 │
-      │                  │               │   from token)  │                 │
-      │                  │               │ ─────────────────────────────►   │
-      │  ◄─────────────────────────────  │                │                 │
-      │  {visita_id: 42} │               │                │                 │
-      │                  │               │                │                 │
-      │  Request mic     │               │                │                 │
-      │  permission      │               │                │                 │
-      │ ───────────────► │               │                │                 │
-      │  [🔴 Recording  │               │                │                 │
-      │   starts…]       │               │                │                 │
-      │                  │               │                │                 │
-      │  [Conversation   │               │                │                 │
-      │   happens]       │               │                │                 │
-      │                  │               │                │                 │
-      │  [Taps STOP]     │               │                │                 │
-      │ ───────────────► │               │                │                 │
-      │  ◄─────────────  │               │                │                 │
-      │  {uri, sizeMB}   │               │                │                 │
-      │                  │               │                │                 │
-      │  POST /visitas/42/audio          │                │                 │
-      │  Authorization: Bearer           │                │                 │
-      │  [.m4a binary upload]            │                │                 │
-      │ ───────────────────────────────► │                │                 │
-      │                  │               │  Validate magic│                 │
-      │                  │               │  bytes, size   │                 │
-      │                  │               │  Save to disk  │                 │
-      │                  │               │  UPDATE visita │                 │
-      │                  │               │  audio_path    │                 │
-      │                  │               │ ─────────────────────────────►   │
-      │  ◄─────────────────────────────  │                │                 │
-      │  {message: "Audio uploaded"}     │                │                 │
-      │                  │               │                │                 │
-      │  POST /visitas/42/transcribir    │                │                 │
-      │  Authorization: Bearer           │                │                 │
-      │ ───────────────────────────────► │                │                 │
-      │                  │               │                │                 │
-      │                  │               │  Whisper API   │                 │
-      │                  │               │  audio → text  │                 │
-      │                  │               │ ─────────────► │                 │
-      │                  │               │  ◄───────────  │                 │
-      │                  │               │  {text, lang}  │                 │
-      │                  │               │                │                 │
-      │                  │               │  GPT-4o-mini   │                 │
-      │                  │               │  text → CRM    │                 │
-      │                  │               │ ─────────────► │                 │
-      │                  │               │  ◄───────────  │                 │
-      │                  │               │  {notas,       │                 │
-      │                  │               │  resultados,   │                 │
-      │                  │               │  productos,    │                 │
-      │                  │               │  nivel_interes,│                 │
-      │                  │               │  estado_suger} │                 │
-      │                  │               │                │                 │
-      │                  │               │  UPDATE visita │                 │
-      │                  │               │  procesado=true│                 │
-      │                  │               │  UPDATE cliente│                 │
-      │                  │               │  estado, lat,  │                 │
-      │                  │               │  lng           │                 │
-      │                  │               │ ─────────────────────────────►   │
-      │  ◄─────────────────────────────  │                │                 │
-      │  {notas_vendedor,│               │                │                 │
-      │   resultados,    │               │                │                 │
-      │   nivel_interes, │               │                │                 │
-      │   estado_suger…} │               │                │                 │
-      │                  │               │                │                 │
-      │  [Result screen  │               │                │                 │
-      │   shows AI       │               │                │                 │
-      │   summary]       │               │                │                 │
-```
-
----
-
-### 5 — Owner Views Real-Time Dashboard
-
-```
-Owner (Dashboard)           Streamlit (:8501)            Backend API             SQLite (crm.db)
-      │                             │                          │                       │
-      │  [Opens dashboard URL]      │                          │                       │
-      │ ──────────────────────────► │                          │                       │
-      │                             │  GET /api/v1/            │                       │
-      │                             │  estadisticas/           │                       │
-      │                             │  Authorization: Bearer   │                       │
-      │                             │ ───────────────────────► │                       │
-      │                             │                          │  COUNT clientes,      │
-      │                             │                          │  vendedores activos   │
-      │                             │                          │  COUNT llamadas /     │
-      │                             │                          │  visitas hoy          │
-      │                             │                          │  COUNT citas & ventas │
-      │                             │                          │  este mes → tasa_citas│
-      │                             │                          │  GROUP BY             │
-      │                             │                          │  cliente.estado       │
-      │                             │                          │  TOP 5 vendedores     │
-      │                             │                          │  por visitas (mes)    │
-      │                             │                          │ ─────────────────►    │
-      │                             │                          │  ◄───────────────     │
-      │                             │                          │  aggregated results   │
-      │                             │  ◄─────────────────────  │                       │
-      │                             │  EstadisticasResponse    │                       │
-      │  ◄────────────────────────  │                          │                       │
-      │  KPI cards + charts         │                          │                       │
-      │  (tasa_citas, pipeline      │                          │                       │
-      │   por estado, top reps)     │                          │                       │
-      │                             │                          │                       │
-      │  [Filter: estado=cita,      │                          │                       │
-      │   zona=Brooklyn]            │                          │                       │
-      │ ──────────────────────────► │                          │                       │
-      │                             │  GET /api/v1/clientes/   │                       │
-      │                             │  ?estado=cita            │                       │
-      │                             │  &zona=Brooklyn          │                       │
-      │                             │ ───────────────────────► │                       │
-      │                             │                          │  SELECT clientes      │
-      │                             │                          │  WHERE estado='cita'  │
-      │                             │                          │  AND zona ILIKE       │
-      │                             │                          │  '%Brooklyn%'         │
-      │                             │                          │ ─────────────────►    │
-      │                             │                          │  ◄───────────────     │
-      │                             │  ◄─────────────────────  │  filtered list        │
-      │                             │  ClienteResponse[]       │                       │
-      │  ◄────────────────────────  │                          │                       │
-      │  Filtered client table      │                          │                       │
-      │  with visit history         │                          │                       │
+📱 Sales Rep App
+│
+├── Login / Register
+└── Clientes (main screen)
+    ├── 🔍 Search clients
+    ├── 🔄 Sync phone contacts
+    ├── ➕ Add client manually (FAB)
+    └── Per client card:
+        ├── 📞 Llamar   → opens dialer + result modal (Cita / No Cita / Venta…)
+        ├── 🗺️ Navegar  → opens Google Maps with client coordinates or address
+        └── 🎙️ Visita   → visit screen: GPS + record conversation + AI processing
 ```
 
 ---
@@ -538,11 +298,22 @@ field-sales-crm/
 │       ├── test_clientes.py
 │       ├── test_llamadas_visitas.py
 │       └── test_openai_service.py
+├── docs/
+│   ├── INSTALL.md
+│   └── SEQUENCE_DIAGRAMS.md     # All sequence diagrams
 ├── mobile/                      # React Native + Expo app
-│   ├── app/                     # Expo Router screens
-│   ├── components/
-│   ├── services/
-│   └── package.json
+│   ├── app/
+│   │   ├── _layout.js           # Root layout — auth check on startup
+│   │   ├── login.js             # Login / register screen
+│   │   └── (tabs)/
+│   │       ├── _layout.js       # Stack navigator (no tabs)
+│   │       ├── index.js         # Clientes — main screen
+│   │       └── visita.js        # Visit recording + AI pipeline screen
+│   └── services/
+│       ├── api.js               # HTTP client — JWT auth, all endpoints
+│       ├── audioRecorder.js     # Record, upload, transcribe
+│       ├── contacts.js          # Phone contacts sync
+│       └── location.js          # GPS coordinates
 ├── README.md
 └── LICENSE
 ```
@@ -572,7 +343,8 @@ field-sales-crm/
 - [x] **Phase 5**: Streamlit dashboard (KPIs, charts, client history, vendor management, client ingestion)
 - [x] **Phase 6**: Fly.io cloud deployment (24/7, persistent volume, public dashboard)
 - [x] **Phase 7**: Client ingestion — manual form + CSV/Excel bulk import (dashboard) + mobile form
-- [ ] **Phase 8**: Pilot with 5 reps → full rollout
+- [x] **Phase 8**: Mobile app refactor — single Clientes screen, no tabs
+- [ ] **Phase 9**: Pilot with 5 reps → full rollout
 
 ## Cost Estimate (50 reps)
 
@@ -593,3 +365,6 @@ This application records in-person sales conversations. In New York State, only 
 
 MIT License — see [LICENSE](LICENSE) for details.
 
+## Author
+
+Built by [Juan Alvarado](https://www.linkedin.com/in/juan-alvarado-71a5a629/) — PhD Computer Science, independent contractor specializing in data engineering and AI systems.

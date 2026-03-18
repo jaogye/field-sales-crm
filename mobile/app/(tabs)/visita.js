@@ -1,100 +1,68 @@
 /**
- * Visit Tab — Record the sales conversation and auto-fill CRM.
- * 
- * This is the core screen. The rep:
- * 1. Selects a client (or GPS auto-detects)
- * 2. Taps "Record" to start capturing the conversation
- * 3. Taps "Stop" when done
- * 4. Audio uploads → Whisper transcribes → GPT extracts → CRM updates
- * 
- * The owner sees the results instantly on their laptop dashboard.
+ * Visita — Visit recording screen.
+ *
+ * Always reached from the Clientes screen with clienteId + clienteNombre params.
+ * Flow:
+ *   1. GPS coordinates are captured silently on mount
+ *   2. Rep taps Record → expo-audio captures the conversation
+ *   3. Rep taps Stop → audio uploads to backend
+ *   4. Whisper transcribes → GPT-4o-mini extracts CRM fields
+ *   5. Result screen shows AI summary; CRM is already updated
  */
 import { useState, useEffect, useRef } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   View, Text, StyleSheet, Alert,
-  FlatList, ActivityIndicator, ScrollView,
+  ActivityIndicator, ScrollView,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import audioRecorder from '../../services/audioRecorder';
 import { getCurrentLocation } from '../../services/location';
-import * as Location from 'expo-location';
 import api from '../../services/api';
 
-export default function VisitaTab() {
-  const { clienteId } = useLocalSearchParams();
-  const [clientes, setClientes] = useState([]);
-  const [selectedClient, setSelectedClient] = useState(null);
+export default function VisitaScreen() {
+  const { clienteId, clienteNombre } = useLocalSearchParams();
+  const router = useRouter();
+
   const [isRecording, setIsRecording] = useState(false);
   const [elapsed, setElapsed] = useState('00:00');
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState(null);
   const [visitaId, setVisitaId] = useState(null);
-  const [starting, setStarting] = useState(false);
+  const [starting, setStarting] = useState(true);
   const timerRef = useRef(null);
 
+  // Start the visit as soon as the screen mounts
   useEffect(() => {
-    loadClientes();
+    initVisit();
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
-  // Auto-start visit when arriving from Clientes tab
-  useEffect(() => {
-    if (clienteId && clientes.length > 0) {
-      const cliente = clientes.find(c => String(c.id) === String(clienteId));
-      if (cliente) startVisit(cliente);
-    }
-  }, [clienteId, clientes]);
-
-  const loadClientes = async () => {
+  const initVisit = async () => {
     try {
-      const data = await api.getClientes({ limit: 50 });
-      setClientes(data);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
-
-  const startVisit = async (cliente) => {
-    console.log('startVisit:', cliente.nombre_apellido);
-    try {
-      setResult(null);
-      setVisitaId(null);
-      setElapsed('00:00');
-      setSelectedClient(cliente);
-      setStarting(true);
-
-      // GPS — optional, foreground only, don't block if it fails
+      // GPS — optional, don't block if unavailable
       let location = { lat: null, lng: null };
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
           location = await getCurrentLocation();
         }
-        console.log('Location:', location);
       } catch (locError) {
         console.log('Location unavailable:', locError.message);
       }
 
-      // Create visit record in backend
-      console.log('Creating visita...');
-      const visita = await api.crearVisita(
-        cliente.id,
-        location.lat,
-        location.lng,
-      );
+      // Create visit record
+      const visita = await api.crearVisita(Number(clienteId), location.lat, location.lng);
       setVisitaId(visita.id);
-      console.log('Visita created:', visita.id);
 
-      // Start recording
-      console.log('Starting recording...');
+      // Start recording immediately
       await audioRecorder.startRecording();
       setIsRecording(true);
       setStarting(false);
-      console.log('Recording started');
 
-      // Start timer
+      // Timer
       const startTime = Date.now();
       timerRef.current = setInterval(() => {
         const diff = Date.now() - startTime;
@@ -106,83 +74,92 @@ export default function VisitaTab() {
       }, 1000);
 
     } catch (error) {
-      console.log('startVisit error:', error.message);
       setStarting(false);
-      Alert.alert('Error al iniciar visita', error.message);
+      Alert.alert('Error al iniciar visita', error.message, [
+        { text: 'Volver', onPress: () => router.back() },
+      ]);
     }
   };
 
   const stopAndProcess = async () => {
     try {
-      // Stop recording
       clearInterval(timerRef.current);
       const audioResult = await audioRecorder.stopRecording();
       setIsRecording(false);
-
-      // Upload and transcribe
       setProcessing(true);
-      const visitResult = await audioRecorder.uploadAndTranscribe(
-        visitaId,
-        audioResult.uri,
-      );
+      const visitResult = await audioRecorder.uploadAndTranscribe(visitaId, audioResult.uri);
       setResult(visitResult);
       setProcessing(false);
-
     } catch (error) {
       setProcessing(false);
       Alert.alert('Error al procesar', error.message);
     }
   };
 
-  const resetVisit = () => {
-    setSelectedClient(null);
-    setVisitaId(null);
-    setResult(null);
-    setElapsed('00:00');
-    loadClientes();
-  };
+  // ── Starting screen ──────────────────────────────────────────
+  if (starting) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#a855f7" />
+        <Text style={styles.statusText}>Obteniendo ubicación e iniciando grabación...</Text>
+      </View>
+    );
+  }
 
-  // ---- RESULT SCREEN ----
+  // ── Processing screen ────────────────────────────────────────
+  if (processing) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#f59e0b" />
+        <Text style={styles.processingTitle}>Procesando con IA...</Text>
+        <Text style={styles.processingSubtitle}>
+          Transcribiendo audio y extrayendo datos del CRM
+        </Text>
+      </View>
+    );
+  }
+
+  // ── Result screen ────────────────────────────────────────────
   if (result) {
     return (
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16 }}>
         <View style={styles.successCard}>
           <Ionicons name="checkmark-circle" size={48} color="#10b981" />
           <Text style={styles.successTitle}>CRM Actualizado</Text>
-          <Text style={styles.successSubtitle}>{selectedClient?.nombre_apellido}</Text>
+          <Text style={styles.successSubtitle}>{clienteNombre}</Text>
         </View>
 
-        <View style={styles.resultSection}>
-          <Text style={styles.resultLabel}>📝 Notas del Vendedor (IA)</Text>
-          <Text style={styles.resultValue}>{result.notas_vendedor || '—'}</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>📝 Notas del Vendedor (IA)</Text>
+          <Text style={styles.sectionValue}>{result.notas_vendedor || '—'}</Text>
         </View>
 
-        <View style={styles.resultSection}>
-          <Text style={styles.resultLabel}>📊 Resultado</Text>
-          <Text style={styles.resultValue}>{result.resultados || '—'}</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>📊 Resultado</Text>
+          <Text style={styles.sectionValue}>{result.resultados || '—'}</Text>
         </View>
 
-        <View style={styles.resultRow}>
-          <View style={[styles.resultChip, { flex: 1 }]}>
+        <View style={styles.chipRow}>
+          <View style={styles.chip}>
             <Text style={styles.chipLabel}>Interés</Text>
             <Text style={[styles.chipValue, {
               color: result.nivel_interes === 'alto' ? '#10b981'
-                : result.nivel_interes === 'medio' ? '#f59e0b' : '#ef4444'
+                : result.nivel_interes === 'medio' ? '#f59e0b' : '#ef4444',
             }]}>
-              {result.nivel_interes?.toUpperCase()}
+              {result.nivel_interes?.toUpperCase() || '—'}
             </Text>
           </View>
-          <View style={[styles.resultChip, { flex: 1 }]}>
+          <View style={styles.chip}>
             <Text style={styles.chipLabel}>Estado</Text>
             <Text style={[styles.chipValue, { color: '#a855f7' }]}>
-              {result.estado_sugerido?.toUpperCase()}
+              {result.estado_sugerido?.toUpperCase() || '—'}
             </Text>
           </View>
         </View>
 
-        {result.productos_json && result.productos_json.length > 0 && (
-          <View style={styles.resultSection}>
-            <Text style={styles.resultLabel}>🛒 Productos Mencionados</Text>
+        {result.productos_json?.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>🛒 Productos Mencionados</Text>
             {result.productos_json.map((p, i) => (
               <View key={i} style={styles.productRow}>
                 <Text style={styles.productName}>{p.nombre}</Text>
@@ -194,100 +171,34 @@ export default function VisitaTab() {
           </View>
         )}
 
-        {result.siguiente_paso && (
-          <View style={styles.resultSection}>
-            <Text style={styles.resultLabel}>➡️ Siguiente Paso</Text>
-            <Text style={styles.resultValue}>{result.siguiente_paso}</Text>
+        {result.siguiente_paso ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>➡️ Siguiente Paso</Text>
+            <Text style={styles.sectionValue}>{result.siguiente_paso}</Text>
           </View>
-        )}
+        ) : null}
 
-        <TouchableOpacity style={styles.primaryBtn} onPress={resetVisit}>
-          <Text style={styles.primaryBtnText}>Nueva Visita</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backBtnText}>Volver a Clientes</Text>
         </TouchableOpacity>
       </ScrollView>
     );
   }
 
-  // ---- RECORDING SCREEN ----
-  if (isRecording || processing) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        {processing ? (
-          <>
-            <ActivityIndicator size="large" color="#f59e0b" />
-            <Text style={styles.processingTitle}>Procesando con IA...</Text>
-            <Text style={styles.processingSubtitle}>
-              Transcribiendo audio y extrayendo datos del CRM
-            </Text>
-          </>
-        ) : (
-          <>
-            <View style={styles.recordingPulse}>
-              <Ionicons name="mic" size={64} color="#ef4444" />
-            </View>
-            <Text style={styles.timer}>{elapsed}</Text>
-            <Text style={styles.recordingLabel}>Grabando conversación...</Text>
-            <Text style={styles.clientNameRecording}>
-              {selectedClient?.nombre_apellido}
-            </Text>
-
-            <TouchableOpacity style={styles.stopBtn} onPress={stopAndProcess}>
-              <Ionicons name="stop" size={32} color="#fff" />
-              <Text style={styles.stopBtnText}>Detener y Procesar</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-    );
-  }
-
-  // ---- CLIENT SELECTION SCREEN ----
+  // ── Recording screen ─────────────────────────────────────────
   return (
-    <View style={styles.container}>
-      <View style={{ padding: 16 }}>
-        <Text style={styles.pageTitle}>Nueva Visita</Text>
-        <Text style={styles.pageSubtitle}>
-          Selecciona el cliente que estás visitando
-        </Text>
-        {starting && (
-          <View style={styles.startingRow}>
-            <ActivityIndicator size="small" color="#f59e0b" />
-            <Text style={styles.startingText}>Obteniendo ubicación...</Text>
-          </View>
-        )}
+    <View style={[styles.container, styles.centered]}>
+      <View style={styles.recordingPulse}>
+        <Ionicons name="mic" size={64} color="#ef4444" />
       </View>
+      <Text style={styles.timer}>{elapsed}</Text>
+      <Text style={styles.recordingLabel}>Grabando conversación...</Text>
+      <Text style={styles.clientName}>{clienteNombre}</Text>
 
-      <FlatList
-        data={clientes}
-        keyExtractor={item => String(item.id)}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="calendar-outline" size={48} color="#94a3b8" />
-            <Text style={styles.emptyText}>
-              No hay clientes. Agrega clientes primero.
-            </Text>
-          </View>
-        }
-        renderItem={({ item: cliente }) => (
-          <TouchableOpacity
-            style={styles.clientCard}
-            onPress={() => startVisit(cliente)}
-            activeOpacity={0.7}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.clientName}>{cliente.nombre_apellido}</Text>
-              <Text style={styles.clientPhone}>{cliente.telefono}</Text>
-              {cliente.direccion && (
-                <Text style={styles.clientAddress}>{cliente.direccion}</Text>
-              )}
-            </View>
-            <View style={styles.startVisitBtn}>
-              <Ionicons name="mic" size={24} color="#fff" />
-            </View>
-          </TouchableOpacity>
-        )}
-      />
+      <TouchableOpacity style={styles.stopBtn} onPress={stopAndProcess}>
+        <Ionicons name="stop" size={32} color="#fff" />
+        <Text style={styles.stopBtnText}>Detener y Procesar</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -295,48 +206,46 @@ export default function VisitaTab() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
   centered: { justifyContent: 'center', alignItems: 'center', padding: 24 },
-  pageTitle: { color: '#f1f5f9', fontSize: 24, fontWeight: '800' },
-  pageSubtitle: { color: '#64748b', fontSize: 14, marginTop: 4 },
-  clientCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#1e293b', borderRadius: 14, padding: 16, marginBottom: 10,
-  },
-  clientName: { color: '#f1f5f9', fontSize: 16, fontWeight: '700' },
-  clientPhone: { color: '#94a3b8', fontSize: 13, marginTop: 2 },
-  clientAddress: { color: '#64748b', fontSize: 12, marginTop: 2 },
-  startVisitBtn: {
-    width: 48, height: 48, borderRadius: 24, backgroundColor: '#a855f7',
-    alignItems: 'center', justifyContent: 'center',
-  },
+
+  statusText: { color: '#94a3b8', fontSize: 14, marginTop: 16, textAlign: 'center' },
+
+  processingTitle: { color: '#f59e0b', fontSize: 20, fontWeight: '700', marginTop: 20 },
+  processingSubtitle: { color: '#94a3b8', fontSize: 14, marginTop: 8, textAlign: 'center' },
+
+  // Recording
   recordingPulse: {
     width: 120, height: 120, borderRadius: 60, backgroundColor: '#7f1d1d',
     alignItems: 'center', justifyContent: 'center', marginBottom: 24,
   },
-  timer: { color: '#f1f5f9', fontSize: 48, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  timer: {
+    color: '#f1f5f9', fontSize: 48, fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
   recordingLabel: { color: '#ef4444', fontSize: 16, fontWeight: '600', marginTop: 8 },
-  clientNameRecording: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
+  clientName: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
   stopBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#ef4444', borderRadius: 16, paddingVertical: 16,
-    paddingHorizontal: 32, marginTop: 40,
+    backgroundColor: '#ef4444', borderRadius: 16,
+    paddingVertical: 16, paddingHorizontal: 32, marginTop: 40,
   },
   stopBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  processingTitle: { color: '#f59e0b', fontSize: 20, fontWeight: '700', marginTop: 20 },
-  processingSubtitle: { color: '#94a3b8', fontSize: 14, marginTop: 8, textAlign: 'center' },
+
+  // Result
   successCard: {
     backgroundColor: '#064e3b', borderRadius: 16, padding: 24,
-    alignItems: 'center', marginBottom: 20,
+    alignItems: 'center', marginBottom: 16,
   },
   successTitle: { color: '#6ee7b7', fontSize: 22, fontWeight: '800', marginTop: 12 },
   successSubtitle: { color: '#94a3b8', fontSize: 14, marginTop: 4 },
-  resultSection: {
+  section: {
     backgroundColor: '#1e293b', borderRadius: 14, padding: 16, marginBottom: 10,
   },
-  resultLabel: { color: '#94a3b8', fontSize: 12, fontWeight: '700', marginBottom: 8 },
-  resultValue: { color: '#f1f5f9', fontSize: 14, lineHeight: 20 },
-  resultRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
-  resultChip: {
-    backgroundColor: '#1e293b', borderRadius: 14, padding: 16, alignItems: 'center',
+  sectionLabel: { color: '#94a3b8', fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  sectionValue: { color: '#f1f5f9', fontSize: 14, lineHeight: 20 },
+  chipRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  chip: {
+    flex: 1, backgroundColor: '#1e293b', borderRadius: 14,
+    padding: 16, alignItems: 'center',
   },
   chipLabel: { color: '#64748b', fontSize: 11, fontWeight: '600' },
   chipValue: { fontSize: 16, fontWeight: '800', marginTop: 4 },
@@ -346,13 +255,9 @@ const styles = StyleSheet.create({
   },
   productName: { color: '#f1f5f9', fontSize: 14 },
   productPrice: { color: '#f59e0b', fontSize: 14, fontWeight: '700' },
-  primaryBtn: {
+  backBtn: {
     backgroundColor: '#f59e0b', borderRadius: 14, padding: 16,
-    alignItems: 'center', marginTop: 10,
+    alignItems: 'center', marginTop: 10, marginBottom: 24,
   },
-  primaryBtnText: { color: '#000', fontSize: 16, fontWeight: '700' },
-  emptyState: { alignItems: 'center', paddingTop: 60 },
-  emptyText: { color: '#94a3b8', fontSize: 14, marginTop: 12, textAlign: 'center' },
-  startingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  startingText: { color: '#f59e0b', fontSize: 13 },
+  backBtnText: { color: '#000', fontSize: 16, fontWeight: '700' },
 });
