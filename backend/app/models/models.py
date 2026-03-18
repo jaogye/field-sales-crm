@@ -31,6 +31,8 @@ class Vendedor(Base):
     activo = Column(Boolean, default=True)
     device_id = Column(String(100), nullable=True)  # Mobile device identifier
     password_hash = Column(String(200), nullable=True)  # bcrypt hash
+    is_demo = Column(Boolean, default=False, nullable=False, server_default="0")
+    demo_segundos_usados = Column(Integer, default=0, nullable=False, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

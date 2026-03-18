@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 
+from mutagen import File as MutagenFile
 from openai import AsyncOpenAI
 
 from app.core.config import settings
@@ -15,6 +16,19 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+
+# ============ Audio duration (demo limits) ============
+
+def get_audio_duration(audio_path: str) -> float:
+    """Return audio duration in seconds using mutagen. Returns 0.0 if undetectable."""
+    try:
+        audio = MutagenFile(audio_path)
+        if audio and audio.info:
+            return float(audio.info.length)
+    except Exception:
+        pass
+    return 0.0
 
 
 # ============ WHISPER: Audio → Text ============

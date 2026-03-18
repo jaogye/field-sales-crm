@@ -122,6 +122,24 @@ export default function LoginScreen() {
               : 'Ya tengo cuenta. Iniciar sesión'}
           </Text>
         </TouchableOpacity>
+
+        {modo === 'login' && (
+          <TouchableOpacity
+            style={styles.demoBtn}
+            onPress={async () => {
+              setLoading(true);
+              try {
+                await api.login('0000000000', 'demo1234');
+              } catch (e) {
+                Alert.alert('Error', e.message || 'No se pudo acceder al demo');
+              }
+              setLoading(false);
+            }}
+            disabled={loading}
+          >
+            <Text style={styles.demoBtnText}>Probar demo</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -157,4 +175,9 @@ const styles = StyleSheet.create({
   btnText: { color: '#0f172a', fontWeight: '700', fontSize: 16 },
   switchBtn: { marginTop: 16, alignItems: 'center' },
   switchText: { color: '#3b82f6', fontSize: 13 },
+  demoBtn: {
+    marginTop: 20, borderWidth: 1, borderColor: '#334155',
+    borderRadius: 12, height: 46, alignItems: 'center', justifyContent: 'center',
+  },
+  demoBtnText: { color: '#64748b', fontSize: 14 },
 });

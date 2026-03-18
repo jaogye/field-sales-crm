@@ -30,6 +30,9 @@ httpx==0.28.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
+# Audio duration detection (demo limits)
+mutagen==1.47.0
+
 # Development
 pytest==8.3.4
 pytest-asyncio==0.25.0

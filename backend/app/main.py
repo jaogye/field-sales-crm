@@ -13,9 +13,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import select, text
 
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import engine, Base, async_session
 from app.api.routes import router
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,61 @@ async def lifespan(app: FastAPI):
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrate existing databases: add demo columns if missing
+        for ddl in [
+            "ALTER TABLE vendedores ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE vendedores ADD COLUMN demo_segundos_usados INTEGER NOT NULL DEFAULT 0",
+        ]:
+            try:
+                await conn.execute(text(ddl))
+            except Exception:
+                pass  # Column already exists
+
+    # Ensure the demo account exists
+    await _ensure_demo_vendedor()
+
     yield
     await engine.dispose()
+
+
+async def _ensure_demo_vendedor():
+    """Create the demo vendedor + sample clients if they don't exist."""
+    from app.models.models import Vendedor, Cliente
+    from app.core.auth import hash_password
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(Vendedor).where(Vendedor.telefono == "0000000000")
+        )
+        if result.scalar_one_or_none():
+            return  # Already exists
+
+        demo = Vendedor(
+            nombre="Demo Vendedor",
+            telefono="0000000000",
+            password_hash=hash_password("demo1234"),
+            is_demo=True,
+            demo_segundos_usados=0,
+            zona="Demo",
+            activo=True,
+        )
+        db.add(demo)
+
+        # Add a handful of demo clients
+        demo_clientes = [
+            ("Ana García", "1111111111", "Brooklyn"),
+            ("Carlos López", "2222222222", "Queens"),
+            ("María Rodríguez", "3333333333", "Bronx"),
+            ("José Martínez", "4444444444", "Manhattan"),
+            ("Laura Torres", "5555555555", "Staten Island"),
+        ]
+        for nombre, tel, zona in demo_clientes:
+            exists = await db.execute(select(Cliente).where(Cliente.telefono == tel))
+            if not exists.scalar_one_or_none():
+                db.add(Cliente(nombre_apellido=nombre, telefono=tel, zona=zona))
+
+        await db.commit()
+        logger.info("Demo account created: telefono=0000000000 / password=demo1234")
 
 
 app = FastAPI(

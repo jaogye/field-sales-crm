@@ -28,7 +28,11 @@ from app.schemas.schemas import (
     VisitaCreate, VisitaResponse,
     EstadisticasResponse,
 )
-from app.services.openai_service import process_visit_audio
+from app.services.openai_service import process_visit_audio, get_audio_duration
+
+# Demo account limits
+DEMO_MAX_SEG_POR_VISITA = 20
+DEMO_MAX_SEG_TOTAL = 500
 
 router = APIRouter(prefix="/api/v1")
 
@@ -361,6 +365,22 @@ async def transcribir_visita(
     if visita.procesado:
         raise HTTPException(status_code=400, detail="Visit already processed")
 
+    # Demo account: enforce per-visit and total transcription limits
+    demo_duration = 0.0
+    if current_vendedor.is_demo:
+        demo_duration = get_audio_duration(visita.audio_path)
+        if demo_duration > DEMO_MAX_SEG_POR_VISITA:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cuenta demo: el audio supera el límite de {DEMO_MAX_SEG_POR_VISITA}s por visita.",
+            )
+        used = current_vendedor.demo_segundos_usados or 0
+        if used + demo_duration > DEMO_MAX_SEG_TOTAL:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cuenta demo: se alcanzó el límite total de {DEMO_MAX_SEG_TOTAL}s de transcripción.",
+            )
+
     # Run AI pipeline: Audio → Transcription → Extraction
     ai_result = await process_visit_audio(visita.audio_path)
 
@@ -388,6 +408,10 @@ async def transcribir_visita(
             cliente.lat = visita.lat
             cliente.lng = visita.lng
         cliente.updated_at = datetime.utcnow()
+
+    # Demo account: accumulate seconds used
+    if current_vendedor.is_demo and demo_duration > 0:
+        current_vendedor.demo_segundos_usados = (current_vendedor.demo_segundos_usados or 0) + int(demo_duration)
 
     await db.flush()
     await db.refresh(visita)

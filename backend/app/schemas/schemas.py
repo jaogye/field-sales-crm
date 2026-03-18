@@ -33,6 +33,7 @@ class VendedorResponse(BaseModel):
     telefono: str
     zona: Optional[str]
     activo: bool
+    is_demo: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}

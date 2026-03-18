@@ -1,3 +1,7 @@
+
+set_openai_key.py
+testopenai.py
+
 # Node / React Native
 node_modules/
 .expo/
