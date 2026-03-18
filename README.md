@@ -30,6 +30,280 @@ A mobile app that **automates the entire reporting cycle**:
 
 The owner sees everything in real-time on their laptop dashboard — **zero phone calls needed**.
 
+## Use Cases
+
+### 1 — Sales Rep Onboarding (Register & Login)
+
+```
+Vendedor (Phone)               Backend API               SQLite (crm.db)
+      │                             │                           │
+      │  POST /api/v1/vendedores/   │                           │
+      │  {nombre, telefono,         │                           │
+      │   password}                 │                           │
+      │ ─────────────────────────►  │                           │
+      │                             │  SELECT vendedor          │
+      │                             │  WHERE telefono = ?       │
+      │                             │ ──────────────────────►   │
+      │                             │  ◄──────────────────────  │
+      │                             │  not found                │
+      │                             │                           │
+      │                             │  INSERT vendedor          │
+      │                             │  (password_hash =         │
+      │                             │   pbkdf2_sha256)          │
+      │                             │ ──────────────────────►   │
+      │                             │  ◄──────────────────────  │
+      │  ◄─────────────────────────  │                           │
+      │  201 {id, nombre, telefono} │                           │
+      │                             │                           │
+      │  POST /api/v1/auth/login    │                           │
+      │  {telefono, password}       │                           │
+      │ ─────────────────────────►  │                           │
+      │                             │  SELECT vendedor WHERE    │
+      │                             │  telefono = ? AND         │
+      │                             │  activo = true            │
+      │                             │ ──────────────────────►   │
+      │                             │  ◄──────────────────────  │
+      │                             │  vendedor record          │
+      │                             │                           │
+      │                             │  verify_password(pwd,     │
+      │                             │  password_hash)           │
+      │  ◄─────────────────────────  │                           │
+      │  200 {access_token (JWT),   │                           │
+      │       vendedor_id}          │                           │
+      │                             │                           │
+      │  [Token saved in phone      │                           │
+      │   AsyncStorage — used on    │                           │
+      │   all future requests]      │                           │
+```
+
+---
+
+### 2 — Contact Sync from Phone
+
+```
+Vendedor (Phone)          Phone Contacts           Backend API             SQLite (crm.db)
+      │                        │                        │                       │
+      │  Request permission    │                        │                       │
+      │ ─────────────────────► │                        │                       │
+      │  ◄───────────────────  │                        │                       │
+      │  [Contacts granted]    │                        │                       │
+      │                        │                        │                       │
+      │  Read all contacts     │                        │                       │
+      │ ─────────────────────► │                        │                       │
+      │  ◄───────────────────  │                        │                       │
+      │  [{nombre, telefono}…] │                        │                       │
+      │                        │                        │                       │
+      │  POST /clientes/sync   │                        │                       │
+      │  Authorization: Bearer │                        │                       │
+      │  {contactos: [...]}    │                        │                       │
+      │ ──────────────────────────────────────────────► │                       │
+      │                        │                        │                       │
+      │                        │  [for each contact]    │                       │
+      │                        │                        │  SELECT cliente       │
+      │                        │                        │  WHERE telefono = ?   │
+      │                        │                        │ ─────────────────►    │
+      │                        │                        │  ◄───────────────     │
+      │                        │                        │  exists → skipped++   │
+      │                        │                        │  not found →          │
+      │                        │                        │  INSERT cliente       │
+      │                        │                        │  created++            │
+      │                        │                        │ ─────────────────►    │
+      │                        │                        │                       │
+      │  ◄────────────────────────────────────────────  │                       │
+      │  200 {created: N,      │                        │                       │
+      │       skipped: M,      │                        │                       │
+      │       total: N+M}      │                        │                       │
+      │                        │                        │                       │
+      │  [New clients visible in owner's dashboard]     │                       │
+```
+
+---
+
+### 3 — Logging a Call (Telemarketing)
+
+```
+Vendedor (Phone)            Backend API              SQLite (crm.db)
+      │                          │                        │
+      │  [Opens client card]     │                        │
+      │  [Taps "Llamar"]         │                        │
+      │  → Native phone dialer opens                      │
+      │                          │                        │
+      │  [Call ends]             │                        │
+      │  [Selects outcome:       │                        │
+      │   cita / no_cita /       │                        │
+      │   no_contesta /          │                        │
+      │   equivocado /           │                        │
+      │   no_llamar / venta]     │                        │
+      │                          │                        │
+      │  POST /api/v1/llamadas/  │                        │
+      │  Authorization: Bearer   │                        │
+      │  {cliente_id,            │                        │
+      │   resultado,             │                        │
+      │   notas_telemarketing}   │                        │
+      │ ───────────────────────► │                        │
+      │                          │  Extract vendedor_id   │
+      │                          │  from JWT              │
+      │                          │                        │
+      │                          │  INSERT INTO llamadas  │
+      │                          │ ─────────────────────► │
+      │                          │                        │
+      │                          │  [if resultado maps    │
+      │                          │   to a known status]   │
+      │                          │  UPDATE clientes.estado│
+      │                          │ ─────────────────────► │
+      │                          │  ◄─────────────────── │
+      │  ◄─────────────────────  │                        │
+      │  201 {llamada_id, fecha} │  [Client card updates  │
+      │                          │   status color]        │
+```
+
+---
+
+### 4 — Field Visit with AI Processing (Core Flow)
+
+```
+Vendedor (Phone)     GPS / Mic      Backend API      OpenAI API       SQLite (crm.db)
+      │                  │               │                │                 │
+      │  [Opens Visita   │               │                │                 │
+      │   tab, selects   │               │                │                 │
+      │   client]        │               │                │                 │
+      │                  │               │                │                 │
+      │  Request GPS     │               │                │                 │
+      │ ───────────────► │               │                │                 │
+      │  ◄─────────────  │               │                │                 │
+      │  {lat, lng}      │               │                │                 │
+      │                  │               │                │                 │
+      │  POST /visitas/  │               │                │                 │
+      │  Authorization:  │               │                │                 │
+      │  {cliente_id,    │               │                │                 │
+      │   lat, lng}      │               │                │                 │
+      │ ───────────────────────────────► │                │                 │
+      │                  │               │  INSERT visita │                 │
+      │                  │               │  (vendedor_id  │                 │
+      │                  │               │   from token)  │                 │
+      │                  │               │ ─────────────────────────────►   │
+      │  ◄─────────────────────────────  │                │                 │
+      │  {visita_id: 42} │               │                │                 │
+      │                  │               │                │                 │
+      │  Request mic     │               │                │                 │
+      │  permission      │               │                │                 │
+      │ ───────────────► │               │                │                 │
+      │  [🔴 Recording  │               │                │                 │
+      │   starts…]       │               │                │                 │
+      │                  │               │                │                 │
+      │  [Conversation   │               │                │                 │
+      │   happens]       │               │                │                 │
+      │                  │               │                │                 │
+      │  [Taps STOP]     │               │                │                 │
+      │ ───────────────► │               │                │                 │
+      │  ◄─────────────  │               │                │                 │
+      │  {uri, sizeMB}   │               │                │                 │
+      │                  │               │                │                 │
+      │  POST /visitas/42/audio          │                │                 │
+      │  Authorization: Bearer           │                │                 │
+      │  [.m4a binary upload]            │                │                 │
+      │ ───────────────────────────────► │                │                 │
+      │                  │               │  Validate magic│                 │
+      │                  │               │  bytes, size   │                 │
+      │                  │               │  Save to disk  │                 │
+      │                  │               │  UPDATE visita │                 │
+      │                  │               │  audio_path    │                 │
+      │                  │               │ ─────────────────────────────►   │
+      │  ◄─────────────────────────────  │                │                 │
+      │  {message: "Audio uploaded"}     │                │                 │
+      │                  │               │                │                 │
+      │  POST /visitas/42/transcribir    │                │                 │
+      │  Authorization: Bearer           │                │                 │
+      │ ───────────────────────────────► │                │                 │
+      │                  │               │                │                 │
+      │                  │               │  Whisper API   │                 │
+      │                  │               │  audio → text  │                 │
+      │                  │               │ ─────────────► │                 │
+      │                  │               │  ◄───────────  │                 │
+      │                  │               │  {text, lang}  │                 │
+      │                  │               │                │                 │
+      │                  │               │  GPT-4o-mini   │                 │
+      │                  │               │  text → CRM    │                 │
+      │                  │               │ ─────────────► │                 │
+      │                  │               │  ◄───────────  │                 │
+      │                  │               │  {notas,       │                 │
+      │                  │               │  resultados,   │                 │
+      │                  │               │  productos,    │                 │
+      │                  │               │  nivel_interes,│                 │
+      │                  │               │  estado_suger} │                 │
+      │                  │               │                │                 │
+      │                  │               │  UPDATE visita │                 │
+      │                  │               │  procesado=true│                 │
+      │                  │               │  UPDATE cliente│                 │
+      │                  │               │  estado, lat,  │                 │
+      │                  │               │  lng           │                 │
+      │                  │               │ ─────────────────────────────►   │
+      │  ◄─────────────────────────────  │                │                 │
+      │  {notas_vendedor,│               │                │                 │
+      │   resultados,    │               │                │                 │
+      │   nivel_interes, │               │                │                 │
+      │   estado_suger…} │               │                │                 │
+      │                  │               │                │                 │
+      │  [Result screen  │               │                │                 │
+      │   shows AI       │               │                │                 │
+      │   summary]       │               │                │                 │
+```
+
+---
+
+### 5 — Owner Views Real-Time Dashboard
+
+```
+Owner (Dashboard)           Streamlit (:8501)            Backend API             SQLite (crm.db)
+      │                             │                          │                       │
+      │  [Opens dashboard URL]      │                          │                       │
+      │ ──────────────────────────► │                          │                       │
+      │                             │  GET /api/v1/            │                       │
+      │                             │  estadisticas/           │                       │
+      │                             │  Authorization: Bearer   │                       │
+      │                             │ ───────────────────────► │                       │
+      │                             │                          │  COUNT clientes,      │
+      │                             │                          │  vendedores activos   │
+      │                             │                          │  COUNT llamadas /     │
+      │                             │                          │  visitas hoy          │
+      │                             │                          │  COUNT citas & ventas │
+      │                             │                          │  este mes → tasa_citas│
+      │                             │                          │  GROUP BY             │
+      │                             │                          │  cliente.estado       │
+      │                             │                          │  TOP 5 vendedores     │
+      │                             │                          │  por visitas (mes)    │
+      │                             │                          │ ─────────────────►    │
+      │                             │                          │  ◄───────────────     │
+      │                             │                          │  aggregated results   │
+      │                             │  ◄─────────────────────  │                       │
+      │                             │  EstadisticasResponse    │                       │
+      │  ◄────────────────────────  │                          │                       │
+      │  KPI cards + charts         │                          │                       │
+      │  (tasa_citas, pipeline      │                          │                       │
+      │   por estado, top reps)     │                          │                       │
+      │                             │                          │                       │
+      │  [Filter: estado=cita,      │                          │                       │
+      │   zona=Brooklyn]            │                          │                       │
+      │ ──────────────────────────► │                          │                       │
+      │                             │  GET /api/v1/clientes/   │                       │
+      │                             │  ?estado=cita            │                       │
+      │                             │  &zona=Brooklyn          │                       │
+      │                             │ ───────────────────────► │                       │
+      │                             │                          │  SELECT clientes      │
+      │                             │                          │  WHERE estado='cita'  │
+      │                             │                          │  AND zona ILIKE       │
+      │                             │                          │  '%Brooklyn%'         │
+      │                             │                          │ ─────────────────►    │
+      │                             │                          │  ◄───────────────     │
+      │                             │  ◄─────────────────────  │  filtered list        │
+      │                             │  ClienteResponse[]       │                       │
+      │  ◄────────────────────────  │                          │                       │
+      │  Filtered client table      │                          │                       │
+      │  with visit history         │                          │                       │
+```
+
+---
+
 ## Architecture
 
 ```
@@ -126,7 +400,7 @@ pip install -r requirements.txt
 # Configure environment
 copy .env.example .env
 # Edit .env — required fields:
-#   OPENAI_API_KEY=sk-...
+#   OPEN_API_KEY=sk-...
 #   SECRET_KEY=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
 #   DATABASE_PATH=C:/ventas/crm.db
 #   AUDIO_STORAGE_PATH=C:/ventas/audios
@@ -152,7 +426,7 @@ fly volumes create crm_data --region ewr --size 5
 
 # Set secrets (one per command in PowerShell)
 fly secrets set SECRET_KEY=<generate_with_python>
-fly secrets set OPENAI_API_KEY=sk-...
+fly secrets set OPEN_API_KEY=sk-...
 fly secrets set DATABASE_PATH=/data/crm.db
 fly secrets set AUDIO_STORAGE_PATH=/data/audios
 fly secrets set DEBUG=false
@@ -319,6 +593,3 @@ This application records in-person sales conversations. In New York State, only 
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-## Author
-
-Built by [Juan Alvarado](https://www.linkedin.com/in/juan-alvarado-71a5a629/) — PhD Computer Science, independent contractor specializing in data engineering and AI systems.

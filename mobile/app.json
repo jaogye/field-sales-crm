@@ -3,6 +3,7 @@
     "name": "Field Sales CRM",
     "slug": "field-sales-crm",
     "version": "0.1.0",
+    "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -49,7 +50,7 @@
         }
       ],
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Allow Field Sales CRM to record visit conversations."
         }

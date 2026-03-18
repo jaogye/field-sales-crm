@@ -27,7 +27,7 @@ if not exist "C:\field-sales-crm\backend\venv\Scripts\activate.bat" (
 :: Check if .env exists
 if not exist "C:\field-sales-crm\backend\.env" (
     echo [ERROR] Archivo .env no encontrado.
-    echo Copia .env.example a .env y agrega tu OPENAI_API_KEY.
+    echo Copia .env.example a .env y agrega tu OPEN_API_KEY.
     echo.
     echo   copy C:\field-sales-crm\backend\.env.example C:\field-sales-crm\backend\.env
     echo   notepad C:\field-sales-crm\backend\.env

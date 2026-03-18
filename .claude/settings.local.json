@@ -5,7 +5,10 @@
       "Bash(python:*)",
       "Bash(cd /c/Users/jaoxx/Documents/Projects/field-sales-crm/backend && venv/Scripts/python -m pytest tests/ -q 2>&1)",
       "Bash(cd \"C:/Users/jaoxx/Documents/Projects/field-sales-crm/backend\" && ./venv/Scripts/python.exe -m pytest tests/ -q 2>&1)",
-      "Bash(/c/Users/jaoxx/Documents/Projects/field-sales-crm/venv/Scripts/python.exe -m pytest /c/Users/jaoxx/Documents/Projects/field-sales-crm/backend/tests/ -q 2>&1)"
+      "Bash(/c/Users/jaoxx/Documents/Projects/field-sales-crm/venv/Scripts/python.exe -m pytest /c/Users/jaoxx/Documents/Projects/field-sales-crm/backend/tests/ -q 2>&1)",
+      "Bash(flyctl logs:*)",
+      "Bash(flyctl deploy:*)",
+      "Bash(flyctl ssh:*)"
     ]
   }
 }

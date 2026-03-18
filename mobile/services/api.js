@@ -3,6 +3,9 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+let _onAuthChange = null;
+export function setAuthChangeHandler(fn) { _onAuthChange = fn; }
+
 const BASE_URL = 'https://field-sales-crm.fly.dev';  // Fly.io
 
 const API = `${BASE_URL}/api/v1`;
@@ -29,6 +32,7 @@ class ApiService {
     this.vendedorId = vendedorId;
     await AsyncStorage.setItem(TOKEN_KEY, token);
     await AsyncStorage.setItem(VENDEDOR_ID_KEY, String(vendedorId));
+    if (_onAuthChange) _onAuthChange(true);
   }
 
   async logout() {
@@ -47,6 +51,10 @@ class ApiService {
     try {
       const response = await fetch(url, { ...options, headers });
       if (!response.ok) {
+        if (response.status === 401) {
+          await this.logout();
+          if (_onAuthChange) _onAuthChange(false);
+        }
         const error = await response.json().catch(() => ({}));
         throw new Error(error.detail || `HTTP ${response.status}`);
       }
@@ -99,7 +107,6 @@ class ApiService {
     return this.request('/clientes/sync', {
       method: 'POST',
       body: JSON.stringify({
-        vendedor_id: this.vendedorId,
         contactos: contactos
           .map(c => ({
             nombre_apellido: c.name || `${c.firstName} ${c.lastName}`.trim(),
@@ -116,7 +123,6 @@ class ApiService {
     return this.request('/llamadas/', {
       method: 'POST',
       body: JSON.stringify({
-        vendedor_id: this.vendedorId,
         cliente_id: clienteId,
         duracion_seg: duracionSeg,
         resultado,
@@ -131,7 +137,6 @@ class ApiService {
     return this.request('/visitas/', {
       method: 'POST',
       body: JSON.stringify({
-        vendedor_id: this.vendedorId,
         cliente_id: clienteId,
         lat,
         lng,

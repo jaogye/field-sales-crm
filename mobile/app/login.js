@@ -7,11 +7,9 @@ import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import api from '../services/api';
 
 export default function LoginScreen() {
-  const router = useRouter();
   const [modo, setModo] = useState('login'); // 'login' | 'registro'
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +26,6 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await api.login(telefono.trim(), password);
-      router.replace('/(tabs)');
     } catch (e) {
       Alert.alert('Error', e.message || 'Credenciales incorrectas');
     }
@@ -47,7 +44,6 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await api.registrar(nombre.trim(), telefono.trim(), password, zona.trim() || null);
-      router.replace('/(tabs)');
     } catch (e) {
       Alert.alert('Error', e.message || 'No se pudo registrar');
     }

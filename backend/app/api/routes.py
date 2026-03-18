@@ -201,10 +201,8 @@ async def sync_contactos(
 ):
     """
     Bulk sync contacts from a sales rep's phone.
-    The vendedor_id in the request must match the authenticated user.
+    vendedor_id is taken from the JWT token — the client doesn't need to send it.
     """
-    if data.vendedor_id != current_vendedor.id:
-        raise HTTPException(status_code=403, detail="Cannot sync contacts for another rep")
 
     created = 0
     skipped = 0
@@ -235,11 +233,8 @@ async def registrar_llamada(
     db: AsyncSession = Depends(get_db),
     current_vendedor: Vendedor = Depends(get_current_vendedor),
 ):
-    """Log a call. The vendedor_id must match the authenticated user."""
-    if data.vendedor_id != current_vendedor.id:
-        raise HTTPException(status_code=403, detail="Cannot log calls for another rep")
-
-    llamada = Llamada(**data.model_dump())
+    """Log a call. vendedor_id is taken from the JWT token."""
+    llamada = Llamada(**data.model_dump(), vendedor_id=current_vendedor.id)
     db.add(llamada)
 
     # Update client status based on call result
@@ -292,11 +287,8 @@ async def crear_visita(
     db: AsyncSession = Depends(get_db),
     current_vendedor: Vendedor = Depends(get_current_vendedor),
 ):
-    """Create a visit record. The vendedor_id must match the authenticated user."""
-    if data.vendedor_id != current_vendedor.id:
-        raise HTTPException(status_code=403, detail="Cannot create visits for another rep")
-
-    visita = Visita(**data.model_dump())
+    """Create a visit record. vendedor_id is taken from the JWT token."""
+    visita = Visita(**data.model_dump(), vendedor_id=current_vendedor.id)
     db.add(visita)
     await db.flush()
     await db.refresh(visita)

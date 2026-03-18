@@ -91,7 +91,7 @@ notepad .env
 En el Bloc de Notas, edita estas líneas:
 
 ```
-OPENAI_API_KEY=sk-TU-API-KEY-AQUI
+OPEN_API_KEY=sk-TU-API-KEY-AQUI
 DATABASE_PATH=C:/ventas/crm.db
 AUDIO_STORAGE_PATH=C:/ventas/audios
 ```
@@ -336,7 +336,7 @@ O simplemente copia `C:\ventas\crm.db` a un USB, Dropbox, Google Drive, etc.
 **"python no se reconoce como comando"**
 → Reinstala Python y marca "Add Python to PATH".
 
-**"Error: OPENAI_API_KEY not set"**
+**"Error: OPEN_API_KEY not set"**
 → Revisa el archivo `.env`. Asegúrate de que la key no tenga espacios.
 
 **"Los vendedores no pueden conectarse"**

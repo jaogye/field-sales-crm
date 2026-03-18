@@ -82,14 +82,12 @@ class ClienteResponse(BaseModel):
 
 class ContactSyncRequest(BaseModel):
     """Bulk sync contacts from phone."""
-    vendedor_id: int
     contactos: list[ClienteCreate]
 
 
 # ============ Llamada (Call) ============
 
 class LlamadaCreate(BaseModel):
-    vendedor_id: int
     cliente_id: int
     duracion_seg: int = Field(0, ge=0)
     resultado: str = Field(
@@ -114,7 +112,6 @@ class LlamadaResponse(BaseModel):
 # ============ Visita (Visit) ============
 
 class VisitaCreate(BaseModel):
-    vendedor_id: int
     cliente_id: int
     lat: Optional[float] = None
     lng: Optional[float] = None
@@ -132,7 +129,7 @@ class VisitaResponse(BaseModel):
     idioma_detectado: Optional[str]
     notas_vendedor: Optional[str]
     resultados: Optional[str]
-    productos_json: Optional[dict]
+    productos_json: Optional[list]
     nivel_interes: Optional[str]
     objeciones: Optional[str]
     siguiente_paso: Optional[str]

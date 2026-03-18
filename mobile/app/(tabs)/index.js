@@ -8,6 +8,7 @@ import {
   ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import api from '../../services/api';
 import { syncContactsToBackend } from '../../services/contacts';
 
@@ -21,6 +22,7 @@ const STATUS_COLORS = {
 };
 
 export default function ClientesTab() {
+  const router = useRouter();
   const [clientes, setClientes] = useState([]);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -111,7 +113,10 @@ export default function ClientesTab() {
             <Ionicons name="navigate" size={18} color="#3b82f6" />
             <Text style={styles.actionText}>Navegar</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => router.push({ pathname: '/(tabs)/visita', params: { clienteId: String(item.id) } })}
+          >
             <Ionicons name="mic" size={18} color="#a855f7" />
             <Text style={styles.actionText}>Visita</Text>
           </TouchableOpacity>

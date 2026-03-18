@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # OpenAI
-    openai_api_key: str = ""
+    OPENAI_API_KEY: str = ""
 
     # Database — /data is the Fly.io persistent volume mount point
     database_path: str = "/data/crm.db"

@@ -10,16 +10,20 @@
  * The owner sees the results instantly on their laptop dashboard.
  */
 import { useState, useEffect, useRef } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Alert,
-  ScrollView, ActivityIndicator,
+  View, Text, StyleSheet, Alert,
+  FlatList, ActivityIndicator, ScrollView,
 } from 'react-native';
+import { TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import audioRecorder from '../../services/audioRecorder';
 import { getCurrentLocation } from '../../services/location';
+import * as Location from 'expo-location';
 import api from '../../services/api';
 
 export default function VisitaTab() {
+  const { clienteId } = useLocalSearchParams();
   const [clientes, setClientes] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -27,6 +31,7 @@ export default function VisitaTab() {
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState(null);
   const [visitaId, setVisitaId] = useState(null);
+  const [starting, setStarting] = useState(false);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -34,9 +39,17 @@ export default function VisitaTab() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
+  // Auto-start visit when arriving from Clientes tab
+  useEffect(() => {
+    if (clienteId && clientes.length > 0) {
+      const cliente = clientes.find(c => String(c.id) === String(clienteId));
+      if (cliente) startVisit(cliente);
+    }
+  }, [clienteId, clientes]);
+
   const loadClientes = async () => {
     try {
-      const data = await api.getClientes({ estado: 'cita', limit: 50 });
+      const data = await api.getClientes({ limit: 50 });
       setClientes(data);
     } catch (error) {
       console.error('Error:', error);
@@ -44,23 +57,42 @@ export default function VisitaTab() {
   };
 
   const startVisit = async (cliente) => {
+    console.log('startVisit:', cliente.nombre_apellido);
     try {
+      setResult(null);
+      setVisitaId(null);
+      setElapsed('00:00');
       setSelectedClient(cliente);
+      setStarting(true);
 
-      // Get GPS location
-      const location = await getCurrentLocation();
+      // GPS — optional, foreground only, don't block if it fails
+      let location = { lat: null, lng: null };
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          location = await getCurrentLocation();
+        }
+        console.log('Location:', location);
+      } catch (locError) {
+        console.log('Location unavailable:', locError.message);
+      }
 
       // Create visit record in backend
+      console.log('Creating visita...');
       const visita = await api.crearVisita(
         cliente.id,
         location.lat,
         location.lng,
       );
       setVisitaId(visita.id);
+      console.log('Visita created:', visita.id);
 
       // Start recording
+      console.log('Starting recording...');
       await audioRecorder.startRecording();
       setIsRecording(true);
+      setStarting(false);
+      console.log('Recording started');
 
       // Start timer
       const startTime = Date.now();
@@ -74,7 +106,9 @@ export default function VisitaTab() {
       }, 1000);
 
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.log('startVisit error:', error.message);
+      setStarting(false);
+      Alert.alert('Error al iniciar visita', error.message);
     }
   };
 
@@ -215,37 +249,45 @@ export default function VisitaTab() {
         <Text style={styles.pageSubtitle}>
           Selecciona el cliente que estás visitando
         </Text>
+        {starting && (
+          <View style={styles.startingRow}>
+            <ActivityIndicator size="small" color="#f59e0b" />
+            <Text style={styles.startingText}>Obteniendo ubicación...</Text>
+          </View>
+        )}
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}>
-        {clientes.length === 0 ? (
+      <FlatList
+        data={clientes}
+        keyExtractor={item => String(item.id)}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+        ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="calendar-outline" size={48} color="#475569" />
+            <Ionicons name="calendar-outline" size={48} color="#94a3b8" />
             <Text style={styles.emptyText}>
-              No hay clientes con cita. Haz llamadas primero.
+              No hay clientes. Agrega clientes primero.
             </Text>
           </View>
-        ) : (
-          clientes.map(cliente => (
-            <TouchableOpacity
-              key={cliente.id}
-              style={styles.clientCard}
-              onPress={() => startVisit(cliente)}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.clientName}>{cliente.nombre_apellido}</Text>
-                <Text style={styles.clientPhone}>{cliente.telefono}</Text>
-                {cliente.direccion && (
-                  <Text style={styles.clientAddress}>{cliente.direccion}</Text>
-                )}
-              </View>
-              <View style={styles.startVisitBtn}>
-                <Ionicons name="mic" size={24} color="#fff" />
-              </View>
-            </TouchableOpacity>
-          ))
+        }
+        renderItem={({ item: cliente }) => (
+          <TouchableOpacity
+            style={styles.clientCard}
+            onPress={() => startVisit(cliente)}
+            activeOpacity={0.7}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.clientName}>{cliente.nombre_apellido}</Text>
+              <Text style={styles.clientPhone}>{cliente.telefono}</Text>
+              {cliente.direccion && (
+                <Text style={styles.clientAddress}>{cliente.direccion}</Text>
+              )}
+            </View>
+            <View style={styles.startVisitBtn}>
+              <Ionicons name="mic" size={24} color="#fff" />
+            </View>
+          </TouchableOpacity>
         )}
-      </ScrollView>
+      />
     </View>
   );
 }
@@ -310,5 +352,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: '#000', fontSize: 16, fontWeight: '700' },
   emptyState: { alignItems: 'center', paddingTop: 60 },
-  emptyText: { color: '#475569', fontSize: 14, marginTop: 12, textAlign: 'center' },
+  emptyText: { color: '#94a3b8', fontSize: 14, marginTop: 12, textAlign: 'center' },
+  startingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  startingText: { color: '#f59e0b', fontSize: 13 },
 });
