@@ -4,15 +4,17 @@ API routes for the Field Sales CRM.
 All endpoints (except registration and login) require a valid JWT token
 issued by POST /api/v1/auth/login.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Query, status
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.limiter import limiter
+from app.core import audit
 from app.core.auth import (
     get_current_vendedor,
     hash_password,
@@ -71,19 +73,47 @@ def _is_valid_audio(content: bytes) -> bool:
 # ---------------------------------------------------------------------------
 
 @router.post("/auth/login", response_model=TokenResponse, tags=["auth"])
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate a sales rep and return a JWT access token."""
+    ip = request.client.host if request.client else "unknown"
+
     result = await db.execute(
         select(Vendedor).where(Vendedor.telefono == data.telefono, Vendedor.activo == True)
     )
     vendedor = result.scalar_one_or_none()
 
-    # Use a constant-time comparison path to avoid user-enumeration timing attacks
     if vendedor is None or not vendedor.password_hash:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    if not verify_password(data.password, vendedor.password_hash):
+        audit.log_login_failure(data.telefono, "user_not_found", ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    # Check account lockout
+    if vendedor.locked_until and vendedor.locked_until > datetime.utcnow():
+        remaining = max(1, int((vendedor.locked_until - datetime.utcnow()).total_seconds() / 60) + 1)
+        audit.log_login_failure(data.telefono, "account_locked", ip)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Cuenta bloqueada. Intenta en {remaining} minuto(s).",
+        )
+
+    if not verify_password(data.password, vendedor.password_hash):
+        attempts = (vendedor.failed_login_attempts or 0) + 1
+        vendedor.failed_login_attempts = attempts
+        if attempts >= settings.login_max_attempts:
+            vendedor.locked_until = datetime.utcnow() + timedelta(minutes=settings.login_lockout_minutes)
+            vendedor.failed_login_attempts = 0
+            audit.log_account_locked(vendedor.id, data.telefono, ip)
+        else:
+            audit.log_login_failure(data.telefono, "wrong_password", ip)
+        await db.flush()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # Success — reset lockout counters
+    vendedor.failed_login_attempts = 0
+    vendedor.locked_until = None
+    await db.flush()
+
+    audit.log_login_success(vendedor.id, data.telefono, ip)
     token = create_access_token(vendedor.id)
     return TokenResponse(access_token=token, vendedor_id=vendedor.id)
 
@@ -300,7 +330,9 @@ async def crear_visita(
 
 
 @router.post("/visitas/{visita_id}/audio", tags=["visitas"])
+@limiter.limit("20/minute")
 async def subir_audio(
+    request: Request,
     visita_id: int,
     audio: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -340,11 +372,14 @@ async def subir_audio(
     visita.audio_path = str(file_path)
     await db.flush()
 
+    audit.log_audio_upload(current_vendedor.id, visita_id, size_mb, request.client.host if request.client else "unknown")
     return {"message": "Audio uploaded", "size_mb": round(size_mb, 2)}
 
 
 @router.post("/visitas/{visita_id}/transcribir", response_model=VisitaResponse, tags=["visitas"])
+@limiter.limit("5/minute")
 async def transcribir_visita(
+    request: Request,
     visita_id: int,
     db: AsyncSession = Depends(get_db),
     current_vendedor: Vendedor = Depends(get_current_vendedor),
@@ -413,6 +448,10 @@ async def transcribir_visita(
     if current_vendedor.is_demo and demo_duration > 0:
         current_vendedor.demo_segundos_usados = (current_vendedor.demo_segundos_usados or 0) + int(demo_duration)
 
+    audit.log_transcription(
+        current_vendedor.id, visita_id, current_vendedor.is_demo,
+        request.client.host if request.client else "unknown",
+    )
     await db.flush()
     await db.refresh(visita)
     return visita

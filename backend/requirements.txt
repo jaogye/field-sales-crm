@@ -33,6 +33,9 @@ passlib[bcrypt]==1.7.4
 # Audio duration detection (demo limits)
 mutagen==1.47.0
 
+# Rate limiting
+slowapi==0.1.2
+
 # Development
 pytest==8.3.4
 pytest-asyncio==0.25.0

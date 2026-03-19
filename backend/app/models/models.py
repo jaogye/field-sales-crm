@@ -33,6 +33,8 @@ class Vendedor(Base):
     password_hash = Column(String(200), nullable=True)  # bcrypt hash
     is_demo = Column(Boolean, default=False, nullable=False, server_default="0")
     demo_segundos_usados = Column(Integer, default=0, nullable=False, server_default="0")
+    failed_login_attempts = Column(Integer, default=0, nullable=False, server_default="0")
+    locked_until = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

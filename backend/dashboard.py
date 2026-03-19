@@ -33,6 +33,23 @@ st.set_page_config(
 # Database path — same as FastAPI (Fly.io persistent volume)
 DB_PATH = Path("/data/crm.db")
 
+# ============ DASHBOARD AUTHENTICATION ============
+
+import os as _os
+_DASHBOARD_PASSWORD = _os.environ.get("DASHBOARD_PASSWORD", "")
+
+if _DASHBOARD_PASSWORD:
+    if not st.session_state.get("dash_authenticated"):
+        st.title("🔐 Field Sales CRM")
+        _pwd = st.text_input("Contraseña del dashboard", type="password")
+        if st.button("Entrar", use_container_width=True):
+            if _pwd == _DASHBOARD_PASSWORD:
+                st.session_state["dash_authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
+        st.stop()
+
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
@@ -106,25 +123,24 @@ st.sidebar.caption(f"Base de datos: {DB_PATH}")
 st.sidebar.caption(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
 
 
-# ============ BUILD WHERE CLAUSES ============
+# ============ BUILD WHERE CLAUSES (parameterized — no SQL injection) ============
 
-def build_date_filter(date_col: str) -> str:
-    """Build date filter SQL fragment."""
-    return f"{date_col} >= '{fecha_inicio}' AND {date_col} <= '{fecha_fin} 23:59:59'"
+def build_filters(date_col: str, rep_col: str = None, zona_col: str = None):
+    """Return (where_clause, params_tuple) using ? placeholders."""
+    conditions = [f"{date_col} >= ? AND {date_col} <= ?"]
+    params = [str(fecha_inicio), f"{fecha_fin} 23:59:59"]
 
+    if rep_col:
+        rep_id = reps_options[rep_sel]
+        if rep_id:
+            conditions.append(f"{rep_col} = ?")
+            params.append(rep_id)
 
-def build_rep_filter(rep_col: str) -> str:
-    """Build rep filter SQL fragment."""
-    rep_id = reps_options[rep_sel]
-    if rep_id:
-        return f" AND {rep_col} = {rep_id}"
-    return ""
+    if zona_col and zona_sel != "Todas":
+        conditions.append(f"{zona_col} = ?")
+        params.append(zona_sel)
 
-
-def build_zona_filter() -> str:
-    if zona_sel != "Todas":
-        return f" AND c.zona = '{zona_sel}'"
-    return ""
+    return " AND ".join(conditions), tuple(params)
 
 
 # ============ MAIN DASHBOARD ============
@@ -140,37 +156,33 @@ total_clients = query("SELECT COUNT(*) as n FROM clientes").iloc[0]["n"]
 col1.metric("👥 Clientes", f"{total_clients:,}")
 
 # Calls in period
-calls_df = query(f"""
-    SELECT COUNT(*) as n FROM llamadas l
-    WHERE {build_date_filter('l.fecha')}{build_rep_filter('l.vendedor_id')}
-""")
+_where, _params = build_filters('l.fecha', rep_col='l.vendedor_id')
+calls_df = query(f"SELECT COUNT(*) as n FROM llamadas l WHERE {_where}", _params)
 col2.metric("📞 Llamadas", f"{calls_df.iloc[0]['n']:,}")
 
 # Visits in period
-visits_df = query(f"""
-    SELECT COUNT(*) as n FROM visitas v
-    WHERE {build_date_filter('v.fecha')}{build_rep_filter('v.vendedor_id')}
-""")
+_where, _params = build_filters('v.fecha', rep_col='v.vendedor_id')
+visits_df = query(f"SELECT COUNT(*) as n FROM visitas v WHERE {_where}", _params)
 col3.metric("🚗 Visitas", f"{visits_df.iloc[0]['n']:,}")
 
 # Appointment rate
+_where, _params = build_filters('l.fecha', rep_col='l.vendedor_id')
 citas_df = query(f"""
-    SELECT
-        COUNT(*) as total,
+    SELECT COUNT(*) as total,
         SUM(CASE WHEN resultado = 'cita' THEN 1 ELSE 0 END) as citas
-    FROM llamadas l
-    WHERE {build_date_filter('l.fecha')}{build_rep_filter('l.vendedor_id')}
-""")
+    FROM llamadas l WHERE {_where}
+""", _params)
 total_calls = citas_df.iloc[0]["total"]
 total_citas = citas_df.iloc[0]["citas"]
 tasa = (total_citas / total_calls * 100) if total_calls > 0 else 0
 col4.metric("📅 Tasa de Citas", f"{tasa:.1f}%")
 
 # Sales
-ventas_df = query(f"""
-    SELECT COUNT(*) as n FROM llamadas l
-    WHERE resultado = 'venta' AND {build_date_filter('l.fecha')}{build_rep_filter('l.vendedor_id')}
-""")
+_where, _params = build_filters('l.fecha', rep_col='l.vendedor_id')
+ventas_df = query(
+    f"SELECT COUNT(*) as n FROM llamadas l WHERE resultado = 'venta' AND {_where}",
+    _params,
+)
 col5.metric("💰 Ventas", f"{ventas_df.iloc[0]['n']:,}")
 
 st.markdown("---")
@@ -212,15 +224,14 @@ with chart_col1:
 # Chart 2: Calls per day (bar chart)
 with chart_col2:
     st.subheader("Llamadas por Día")
+    _where, _params = build_filters('l.fecha', rep_col='l.vendedor_id')
     daily_calls = query(f"""
         SELECT DATE(fecha) as dia, COUNT(*) as llamadas,
             SUM(CASE WHEN resultado = 'cita' THEN 1 ELSE 0 END) as citas,
             SUM(CASE WHEN resultado = 'venta' THEN 1 ELSE 0 END) as ventas
-        FROM llamadas l
-        WHERE {build_date_filter('l.fecha')}{build_rep_filter('l.vendedor_id')}
-        GROUP BY DATE(fecha)
-        ORDER BY dia
-    """)
+        FROM llamadas l WHERE {_where}
+        GROUP BY DATE(fecha) ORDER BY dia
+    """, _params)
 
     if not daily_calls.empty:
         fig = go.Figure()
@@ -251,20 +262,19 @@ chart_col3, chart_col4 = st.columns(2)
 # Chart 3: Top sales reps
 with chart_col3:
     st.subheader("🏆 Top Vendedores")
+    _date_w = "vis.fecha >= ? AND vis.fecha <= ?"
+    _date_p = (str(fecha_inicio), f"{fecha_fin} 23:59:59")
+    _date_w2 = "l.fecha >= ? AND l.fecha <= ?"
     top_reps = query(f"""
         SELECT v.nombre,
             COUNT(DISTINCT vis.id) as visitas,
             COUNT(DISTINCT l.id) as llamadas
         FROM vendedores v
-        LEFT JOIN visitas vis ON vis.vendedor_id = v.id
-            AND {build_date_filter('vis.fecha')}
-        LEFT JOIN llamadas l ON l.vendedor_id = v.id
-            AND {build_date_filter('l.fecha')}
+        LEFT JOIN visitas vis ON vis.vendedor_id = v.id AND {_date_w}
+        LEFT JOIN llamadas l ON l.vendedor_id = v.id AND {_date_w2}
         WHERE v.activo = 1
-        GROUP BY v.id
-        ORDER BY visitas DESC
-        LIMIT 10
-    """)
+        GROUP BY v.id ORDER BY visitas DESC LIMIT 10
+    """, _date_p + _date_p)
 
     if not top_reps.empty:
         fig = go.Figure()
@@ -287,13 +297,12 @@ with chart_col3:
 # Chart 4: Call results breakdown
 with chart_col4:
     st.subheader("Resultados de Llamadas")
+    _where, _params = build_filters('l.fecha', rep_col='l.vendedor_id')
     results_df = query(f"""
         SELECT resultado, COUNT(*) as cantidad
-        FROM llamadas l
-        WHERE {build_date_filter('l.fecha')}{build_rep_filter('l.vendedor_id')}
-        GROUP BY resultado
-        ORDER BY cantidad DESC
-    """)
+        FROM llamadas l WHERE {_where}
+        GROUP BY resultado ORDER BY cantidad DESC
+    """, _params)
 
     if not results_df.empty:
         result_colors = {
@@ -326,8 +335,12 @@ status_filter = st.multiselect(
 )
 
 if status_filter:
-    placeholders = ",".join(f"'{s}'" for s in status_filter)
-    zona_filter = f"AND zona = '{zona_sel}'" if zona_sel != "Todas" else ""
+    _in_placeholders = ",".join(["?"] * len(status_filter))
+    _table_params = list(status_filter)
+    _zona_condition = ""
+    if zona_sel != "Todas":
+        _zona_condition = " AND c.zona = ?"
+        _table_params.append(zona_sel)
 
     clients_table = query(f"""
         SELECT
@@ -346,10 +359,9 @@ if status_filter:
              ORDER BY fecha DESC LIMIT 1) as 'Resultados',
             c.updated_at as 'Última Actualización'
         FROM clientes c
-        WHERE c.estado IN ({placeholders}) {zona_filter}
-        ORDER BY c.updated_at DESC
-        LIMIT 200
-    """)
+        WHERE c.estado IN ({_in_placeholders}){_zona_condition}
+        ORDER BY c.updated_at DESC LIMIT 200
+    """, tuple(_table_params))
 
     if not clients_table.empty:
         # Color-code the status column like the original Excel

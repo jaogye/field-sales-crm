@@ -13,10 +13,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.database import engine, Base, async_session
+from app.core.limiter import limiter
 from app.api.routes import router
 
 logger = logging.getLogger(__name__)
@@ -42,10 +45,12 @@ async def lifespan(app: FastAPI):
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrate existing databases: add demo columns if missing
+        # Migrate existing databases: add new columns if missing
         for ddl in [
             "ALTER TABLE vendedores ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE vendedores ADD COLUMN demo_segundos_usados INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE vendedores ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE vendedores ADD COLUMN locked_until DATETIME",
         ]:
             try:
                 await conn.execute(text(ddl))
@@ -111,6 +116,10 @@ app = FastAPI(
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS — Bearer tokens are used, not cookies, so allow_credentials=False
 app.add_middleware(

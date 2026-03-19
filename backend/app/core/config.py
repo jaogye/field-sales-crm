@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # CORS — comma-separated origins or JSON array in env
     cors_origins: list[str] = ["http://localhost:8501", "http://localhost:3000"]
 
+    # Dashboard authentication (empty = no gate)
+    dashboard_password: str = ""
+
+    # Account lockout
+    login_max_attempts: int = 5
+    login_lockout_minutes: int = 15
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

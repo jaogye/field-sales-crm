@@ -329,9 +329,11 @@ field-sales-crm/
 | CORS locked to configured origins | ✅ |
 | API docs disabled in production | ✅ |
 | `SECRET_KEY` enforced before production startup | ✅ |
-| SQL injection in Streamlit dashboard | ⏳ Phase 2 |
-| Rate limiting on transcription endpoint | ⏳ Phase 2 |
-| Audit logging | ⏳ Phase 2 |
+| SQL injection in Streamlit dashboard | ✅ |
+| Rate limiting (login: 10/min, transcription: 5/min, audio: 20/min) | ✅ |
+| Account lockout after 5 failed logins (15-min cooldown) | ✅ |
+| Audit log (`/data/audit.log`) — login, upload, transcription events | ✅ |
+| Dashboard password gate (`DASHBOARD_PASSWORD` env var) | ✅ |
 
 ## Roadmap
 
@@ -344,7 +346,8 @@ field-sales-crm/
 - [x] **Phase 6**: Fly.io cloud deployment (24/7, persistent volume, public dashboard)
 - [x] **Phase 7**: Client ingestion — manual form + CSV/Excel bulk import (dashboard) + mobile form
 - [x] **Phase 8**: Mobile app refactor — single Clientes screen, no tabs
-- [ ] **Phase 9**: Pilot with 5 reps → full rollout
+- [x] **Phase 9**: Security Phase 2 — rate limiting, account lockout, audit logging, dashboard auth, SQL injection fixes
+- [ ] **Phase 10**: Pilot with 5 reps → full rollout
 
 ## Cost Estimate (50 reps)
 
